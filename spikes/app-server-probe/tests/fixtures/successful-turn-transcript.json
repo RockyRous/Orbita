@@ -1,0 +1,29 @@
+{
+  "runMetadata": {
+    "contract": {
+      "experimentalManifestSha256": "1ba3f58b199dee49d6ad7b0c6a2083e8a66c92dc8917dd1ef198aee2b6c30f8c",
+      "stableManifestSha256": "86d780e116e5d176752ec0065b55e81267c517b1b71423e22fa4af4a67357118"
+    },
+    "runtime": {
+      "cliVersion": "codex-cli 0.170.0",
+      "launcherSha256": "c54db6755e710c39703f7c37512f9e35ed41042d8080558d2b84b8d2694323c3",
+      "features": {"experimentalApi": false},
+      "transport": "stdio://"
+    }
+  },
+  "messages": [
+    {"direction": "clientToServer", "message": {"id": "init-a", "method": "initialize", "params": {"capabilities": {"experimentalApi": false}, "clientInfo": {"name": "orbita-m0-probe", "title": "Orbita M0 probe", "version": "0.0.0-throwaway"}}}},
+    {"direction": "serverToClient", "message": {"id": "init-a", "result": {"codexHome": "C:\\synthetic-private\\codex-home", "platformFamily": "windows", "platformOs": "windows", "userAgent": "synthetic"}}},
+    {"direction": "clientToServer", "message": {"method": "initialized"}},
+    {"direction": "clientToServer", "message": {"id": "thread-a", "method": "thread/start", "params": {"approvalPolicy": "never", "cwd": "C:\\synthetic-private\\project", "ephemeral": true, "sandbox": "read-only"}}},
+    {"direction": "serverToClient", "message": {"id": "thread-a", "result": {"approvalPolicy": "never", "approvalsReviewer": "user", "cwd": "C:\\synthetic-private\\project", "model": "synthetic-model", "modelProvider": "synthetic-provider", "sandbox": {"networkAccess": false, "type": "readOnly"}, "thread": {"cliVersion": "0.170.0", "createdAt": 123400, "cwd": "C:\\synthetic-private\\project", "ephemeral": true, "id": "019a-thread-source", "modelProvider": "synthetic-provider", "preview": "", "projectId": null, "sessionId": "synthetic-session", "source": "appServer", "status": {"type": "idle"}, "turns": [], "updatedAt": 123400}}}},
+    {"direction": "clientToServer", "message": {"id": "turn-a", "method": "turn/start", "params": {"threadId": "019a-thread-source", "input": [{"type": "text", "text": "Reply with exactly: ORBITA_M0_OK. Do not use tools.", "text_elements": []}]}}},
+    {"direction": "serverToClient", "message": {"method": "turn/started", "params": {"threadId": "019a-thread-source", "turn": {"id": "019a-turn-source", "items": [], "status": "inProgress"}}}},
+    {"direction": "serverToClient", "message": {"id": "turn-a", "result": {"turn": {"id": "019a-turn-source", "items": [], "status": "inProgress"}}}},
+    {"direction": "serverToClient", "message": {"method": "item/agentMessage/delta", "params": {"delta": "noise", "itemId": "unrelated-item", "threadId": "unrelated-thread", "turnId": "unrelated-turn"}}},
+    {"direction": "serverToClient", "message": {"method": "item/completed", "params": {"completedAtMs": 123455, "item": {"content": [{"text": "synthetic prompt", "type": "text"}], "id": "019a-user-item", "type": "userMessage"}, "threadId": "019a-thread-source", "turnId": "019a-turn-source"}}},
+    {"direction": "serverToClient", "message": {"method": "item/agentMessage/delta", "params": {"delta": "ORBITA_M0_OK", "itemId": "019a-item-source", "threadId": "019a-thread-source", "turnId": "019a-turn-source"}}},
+    {"direction": "serverToClient", "message": {"method": "item/completed", "params": {"completedAtMs": 123456, "item": {"id": "019a-item-source", "text": "ORBITA_M0_OK", "type": "agentMessage"}, "threadId": "019a-thread-source", "turnId": "019a-turn-source"}}},
+    {"direction": "serverToClient", "message": {"method": "turn/completed", "params": {"threadId": "019a-thread-source", "turn": {"id": "019a-turn-source", "items": [], "status": "completed"}}}}
+  ]
+}

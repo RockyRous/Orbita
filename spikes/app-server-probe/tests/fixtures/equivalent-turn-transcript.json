@@ -1,0 +1,23 @@
+{
+  "runMetadata": {
+    "contract": {
+      "experimentalManifestSha256": "1ba3f58b199dee49d6ad7b0c6a2083e8a66c92dc8917dd1ef198aee2b6c30f8c",
+      "stableManifestSha256": "86d780e116e5d176752ec0065b55e81267c517b1b71423e22fa4af4a67357118"
+    },
+    "runtime": {"cliVersion": "codex-cli 0.170.0", "transport": "stdio://"}
+  },
+  "messages": [
+    {"direction":"clientToServer","message":{"id":"init-b","method":"initialize","params":{"capabilities":{"experimentalApi":false},"clientInfo":{"name":"orbita-m0-probe","title":"Orbita M0 probe","version":"0.0.0-throwaway"}}}},
+    {"direction":"serverToClient","message":{"id":"init-b","result":{"codexHome":"C:\\other-synthetic\\home","platformFamily":"windows","platformOs":"windows","userAgent":"different-synthetic"}}},
+    {"direction":"clientToServer","message":{"method":"initialized"}},
+    {"direction":"clientToServer","message":{"id":"thread-b","method":"thread/start","params":{"approvalPolicy":"never","cwd":"C:\\other-synthetic\\project","ephemeral":true,"sandbox":"read-only"}}},
+    {"direction":"serverToClient","message":{"id":"thread-b","result":{"approvalPolicy":"never","approvalsReviewer":"user","cwd":"C:\\other-synthetic\\project","model":"other-model","modelProvider":"other-provider","sandbox":{"networkAccess":false,"type":"readOnly"},"thread":{"cliVersion":"0.170.0","createdAt":999001,"cwd":"C:\\other-synthetic\\project","ephemeral":true,"id":"019b-thread-other","modelProvider":"other-provider","preview":"","projectId":null,"sessionId":"other-session","source":"appServer","status":{"type":"idle"},"turns":[],"updatedAt":999001}}}},
+    {"direction":"clientToServer","message":{"id":"turn-b","method":"turn/start","params":{"threadId":"019b-thread-other","input":[{"type":"text","text":"Reply with exactly: ORBITA_M0_OK. Do not use tools.","text_elements":[]}]}}},
+    {"direction":"serverToClient","message":{"id":"turn-b","result":{"turn":{"id":"019b-turn-other","items":[],"status":"inProgress"}}}},
+    {"direction":"serverToClient","message":{"method":"turn/started","params":{"threadId":"019b-thread-other","turn":{"id":"019b-turn-other","items":[],"status":"inProgress"}}}},
+    {"direction":"serverToClient","message":{"method":"item/agentMessage/delta","params":{"delta":"ORBITA_","itemId":"019b-item-other","threadId":"019b-thread-other","turnId":"019b-turn-other"}}},
+    {"direction":"serverToClient","message":{"method":"item/agentMessage/delta","params":{"delta":"M0_OK","itemId":"019b-item-other","threadId":"019b-thread-other","turnId":"019b-turn-other"}}},
+    {"direction":"serverToClient","message":{"method":"item/completed","params":{"completedAtMs":999777,"item":{"id":"019b-item-other","text":"ORBITA_M0_OK","type":"agentMessage"},"threadId":"019b-thread-other","turnId":"019b-turn-other"}}},
+    {"direction":"serverToClient","message":{"method":"turn/completed","params":{"threadId":"019b-thread-other","turn":{"id":"019b-turn-other","items":[],"status":"completed"}}}}
+  ]
+}
