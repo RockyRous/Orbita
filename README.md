@@ -1,26 +1,37 @@
 # Orbita
 
-**Orbita** is a local-first Windows desktop workspace for working with Codex through its App Server. It brings projects and chats into a visual interface and makes the activity of Codex and its subagents observable.
+**Orbita** is a local-first visual control plane for Codex on Windows. It launches one root task and presents observable root and subagent executions as a source-driven task workspace with hierarchy, activity, outcomes, and attention.
 
 > Status: specification and implementation planning. The source code has not been started yet.
 
 ## Product direction
 
-- Start and manage a local Codex App Server for a chosen project.
-- Work in persistent chats and projects instead of a terminal-only workflow.
-- Stream responses, tool activity, approvals, diagnostics, and Git changes.
-- Show the available lifecycle, tasks, and relationships of subagents without inventing orchestration that Codex does not expose.
-- Keep user data local and preserve the semantics of Codex rather than replacing its runtime.
+- Start a root task through the public Codex App Server integration surface.
+- Make observable agent work understandable without reconstructing it from a full transcript.
+- Show only source-backed agent executions, relationships, statuses, outcomes, and attention.
+- Handle supported approvals, interruption, and root-task follow-up without adding a custom orchestrator.
+- Recover a coherent local task workspace after restart and show missing evidence as gaps.
 
-The initial platform is Windows 11; Windows 10 and WSL are follow-up compatibility targets.
+The initial platform is Windows 11. The product is currently gated on an App Server protocol spike; no runtime version is supported yet.
 
 ## Project status
 
-The complete product specification is in [PROJECT_DOC.md](PROJECT_DOC.md). It defines the MVP, technical spike for multi-agent observability, architecture boundaries, milestones, and initial backlog.
+The repository is in specification and protocol-validation planning. Production implementation starts only after the M0 go/no-go gate.
+
+Canonical documentation:
+
+- [Product vision](docs/product/vision.md)
+- [Bounded MVP](docs/product/mvp.md)
+- [Gated roadmap](docs/product/roadmap.md)
+- [Core flows](docs/ux/core-flows.md) and [state model](docs/ux/state-model.md)
+- [Architecture boundary](docs/architecture/overview.md)
+- [Compatibility status](docs/protocol/compatibility.md) and [M0 spike plan](docs/protocol/spike-plan.md)
+- [Threat model](docs/security/threat-model.md) and [data policy](docs/security/diagnostics-and-data.md)
+- [Draft M0 ticket breakdown](docs/planning/m0-tickets.md)
 
 ## Contributing
 
-Contributions are welcome once implementation begins. Please read [CONTRIBUTING.md](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), and use GitHub Issues to discuss substantial changes before opening a pull request.
+Contributions are welcome once implementation begins. Please read [CONTRIBUTING.md](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), and use GitHub Issues to discuss substantial changes before opening a pull request. The draft M0 tickets have not been published yet.
 
 ## Security
 
