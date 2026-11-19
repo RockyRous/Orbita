@@ -15,6 +15,8 @@
     {"direction":"clientToServer","message":{"id":"turn-b","method":"turn/start","params":{"threadId":"019b-thread-other","input":[{"type":"text","text":"Reply with exactly: ORBITA_M0_OK. Do not use tools.","text_elements":[]}]}}},
     {"direction":"serverToClient","message":{"id":"turn-b","result":{"turn":{"id":"019b-turn-other","items":[],"status":"inProgress"}}}},
     {"direction":"serverToClient","message":{"method":"turn/started","params":{"threadId":"019b-thread-other","turn":{"id":"019b-turn-other","items":[],"status":"inProgress"}}}},
+    {"direction":"serverToClient","message":{"method":"item/started","params":{"item":{"id":"019b-item-other","text":"","type":"agentMessage"},"startedAtMs":999002,"threadId":"019b-thread-other","turnId":"019b-turn-other"}}},
+    {"direction":"serverToClient","message":{"method":"item/reasoning/textDelta","params":{"contentIndex":0,"delta":"harmless synthetic reasoning summary","itemId":"019b-reasoning-other","threadId":"019b-thread-other","turnId":"019b-turn-other"}}},
     {"direction":"serverToClient","message":{"method":"item/agentMessage/delta","params":{"delta":"ORBITA_","itemId":"019b-item-other","threadId":"019b-thread-other","turnId":"019b-turn-other"}}},
     {"direction":"serverToClient","message":{"method":"item/agentMessage/delta","params":{"delta":"M0_OK","itemId":"019b-item-other","threadId":"019b-thread-other","turnId":"019b-turn-other"}}},
     {"direction":"serverToClient","message":{"method":"item/completed","params":{"completedAtMs":999777,"item":{"id":"019b-item-other","text":"ORBITA_M0_OK","type":"agentMessage"},"threadId":"019b-thread-other","turnId":"019b-turn-other"}}},

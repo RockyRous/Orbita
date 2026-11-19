@@ -11,6 +11,7 @@ from pathlib import Path
 PROBE_ROOT = Path(__file__).resolve().parents[1]
 PROBE = PROBE_ROOT / "probe.py"
 SUCCESSFUL_TURN = PROBE_ROOT / "tests" / "fixtures" / "successful-turn-transcript.json"
+EQUIVALENT_TURN = PROBE_ROOT / "tests" / "fixtures" / "equivalent-turn-transcript.json"
 
 PROBE_SPEC = importlib.util.spec_from_file_location("orbita_m0_probe", PROBE)
 assert PROBE_SPEC is not None and PROBE_SPEC.loader is not None
@@ -55,6 +56,41 @@ class ProbeCliTests(unittest.TestCase):
                     {"safe": [{"authorization": "Bearer sk-seeded-secret-value"}]},
                 )
             self.assertFalse(output.exists())
+
+    def test_no_tools_allowlist_rejects_every_unapproved_item_kind(self) -> None:
+        for item_type in (
+            "collabAgentToolCall",
+            "subAgentActivity",
+            "imageView",
+            "sleep",
+            "futureUnknownItem",
+        ):
+            with self.subTest(item_type=item_type):
+                message = {
+                    "method": "item/started",
+                    "params": {"item": {"id": "item-x", "type": item_type}},
+                }
+                self.assertTrue(PROBE_MODULE.has_disallowed_activity(message))
+
+    def test_no_tools_gate_allows_schema_valid_non_tool_notification(self) -> None:
+        message = {
+            "method": "item/reasoning/textDelta",
+            "params": {
+                "contentIndex": 0,
+                "delta": "synthetic reasoning summary",
+                "itemId": "reasoning-item",
+                "threadId": "thread",
+                "turnId": "turn",
+            },
+        }
+        self.assertFalse(PROBE_MODULE.has_disallowed_activity(message))
+
+    def test_no_tools_gate_rejects_every_server_request(self) -> None:
+        self.assertTrue(
+            PROBE_MODULE.has_disallowed_activity(
+                {"id": "server-request-1", "method": "future/request", "params": {}}
+            )
+        )
 
     def test_runtime_metadata_pins_native_binary_and_effective_features(self) -> None:
         launcher = Path(PROBE_MODULE.codex_executable())
@@ -210,7 +246,7 @@ class ProbeCliTests(unittest.TestCase):
             )
             self.assertEqual(
                 result["repeatabilityDigest"],
-                "9963774130a20a21c838727ff985e035a89bc27b074d6496cbffea044c1030cc",
+                "491637aea23170f7c5e2ea44c420299c38e8d3090b852be592e3c3d220e682d3",
             )
             serialized = output.read_text(encoding="utf-8")
             self.assertNotIn("019a-thread-source", serialized)
@@ -267,7 +303,7 @@ class ProbeCliTests(unittest.TestCase):
             self.assertNotEqual(completed.returncode, 0)
             self.assertEqual(
                 json.loads(output.read_text(encoding="utf-8"))["outcome"],
-                {"failure": "missingMatchingTurnCompleted", "success": False},
+                {"failure": "missingRequiredLiveSurface", "success": False},
             )
 
     def test_live_turn_requires_explicit_model_opt_in(self) -> None:
@@ -310,6 +346,67 @@ class ProbeCliTests(unittest.TestCase):
             completed, result, _ = run_normalize(capture, temp_dir)
         self.assertNotEqual(completed.returncode, 0)
         self.assertEqual(result["outcome"], {"failure": "unsafeThreadStartParams", "success": False})
+
+    def test_normalize_turn_requires_every_live_proof_surface(self) -> None:
+        capture = json.loads(SUCCESSFUL_TURN.read_text(encoding="utf-8"))
+        capture["messages"] = [
+            entry
+            for entry in capture["messages"]
+            if entry["message"].get("method") != "turn/started"
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            completed, result, _ = run_normalize(capture, temp_dir)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertEqual(result["outcome"], {"failure": "missingRequiredLiveSurface", "success": False})
+
+    def test_equivalent_fixture_pair_has_one_reviewed_repeatability_projection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first_output = Path(temp_dir) / "first.json"
+            second_output = Path(temp_dir) / "second.json"
+            results = []
+            for source, output in ((SUCCESSFUL_TURN, first_output), (EQUIVALENT_TURN, second_output)):
+                completed = subprocess.run(
+                    [sys.executable, str(PROBE), "normalize-turn", "--input", str(source), "--output", str(output)],
+                    cwd=PROBE_ROOT,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                results.append(json.loads(output.read_text(encoding="utf-8")))
+
+        expected_projection = {
+            "contract": {
+                "experimentalManifestSha256": "1ba3f58b199dee49d6ad7b0c6a2083e8a66c92dc8917dd1ef198aee2b6c30f8c",
+                "stableManifestSha256": "86d780e116e5d176752ec0065b55e81267c517b1b71423e22fa4af4a67357118",
+            },
+            "correlation": {"rootThreadObserved": True, "turnObserved": True},
+            "evidenceKinds": ["agentMessageDelta", "turnCompleted", "turnStarted"],
+            "runtime": {
+                "cliVersion": "codex-cli 0.170.0",
+                "effectiveConfigSha256": "187490d8f1e1f788847dd78e58f161c0415d537c8ed5fa7ccadfc8bd6dae0cbf",
+                "launcherSha256": "c54db6755e710c39703f7c37512f9e35ed41042d8080558d2b84b8d2694323c3",
+                "nativeExecutableSha256": "8d06dc231dba649c7d48d3eecab239c452a1ac498c41dd6492a6f301b90a22ce",
+                "protocolCapabilities": {"experimentalApi": False},
+                "transport": "stdio://",
+            },
+            "surfaceClassification": {
+                surface: "stable" for surface in sorted(PROBE_MODULE.REQUIRED_LIVE_SURFACES)
+            },
+            "terminal": {
+                "finalAgentText": "ORBITA_M0_OK",
+                "method": "turn/completed",
+                "status": "completed",
+            },
+        }
+        self.assertEqual(results[0]["repeatabilityProjection"], expected_projection)
+        self.assertEqual(results[1]["repeatabilityProjection"], expected_projection)
+        self.assertEqual(results[0]["repeatabilityDigest"], results[1]["repeatabilityDigest"])
+        self.assertEqual(
+            results[0]["repeatabilityDigest"],
+            "491637aea23170f7c5e2ea44c420299c38e8d3090b852be592e3c3d220e682d3",
+        )
+        self.assertNotEqual(results[0]["transcript"], results[1]["transcript"])
 
     def test_normalize_turn_rejects_tool_activity(self) -> None:
         capture = json.loads(SUCCESSFUL_TURN.read_text(encoding="utf-8"))

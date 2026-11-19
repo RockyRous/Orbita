@@ -29,6 +29,7 @@
       7
     ]
   },
+  "evidenceStatus": "obsolete-pre-remediation",
   "fixtureSchemaVersion": 1,
   "outcome": {
     "finalAgentText": "ORBITA_M0_OK",

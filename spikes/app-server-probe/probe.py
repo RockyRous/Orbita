@@ -482,6 +482,11 @@ def normalize_turn_capture(capture: dict[str, object]) -> tuple[dict[str, object
     messages = capture.get("messages")
     if not isinstance(metadata, dict) or not isinstance(messages, list):
         return {"fixtureSchemaVersion": 1, "outcome": {"failure": "invalidCapture", "success": False}}, False
+    source_classification = metadata.get("surfaceClassification")
+    if not isinstance(source_classification, dict):
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "missingSurfaceClassification", "success": False}}, False
+    if not REQUIRED_LIVE_SURFACES.issubset(source_classification):
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "missingRequiredLiveSurface", "success": False}}, False
 
     requests: dict[object, str] = {}
     thread_id: str | None = None
@@ -504,10 +509,8 @@ def normalize_turn_capture(capture: dict[str, object]) -> tuple[dict[str, object
             turn = params.get("turn") if isinstance(params, dict) else None
             if not isinstance(turn, dict) or not isinstance(turn.get("status"), str):
                 return {"fixtureSchemaVersion": 1, "outcome": {"failure": "invalidContractMessage", "success": False}}, False
-        if entry.get("direction") == "serverToClient" and method in ("item/started", "item/completed") and isinstance(params, dict):
-            item = params.get("item")
-            item_type = item.get("type") if isinstance(item, dict) else None
-            if item_type in {"commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "webSearch", "imageGeneration"}:
+        if entry.get("direction") == "serverToClient":
+            if has_disallowed_activity(message):
                 return {"fixtureSchemaVersion": 1, "outcome": {"failure": "toolActivityObserved", "success": False}}, False
 
     thread_starts = [
@@ -627,16 +630,27 @@ def normalize_turn_capture(capture: dict[str, object]) -> tuple[dict[str, object
     if not isinstance(runtime, dict) or not isinstance(contract, dict):
         return {"fixtureSchemaVersion": 1, "outcome": {"failure": "invalidRunMetadata", "success": False}}, False
 
-    source_classification = metadata.get("surfaceClassification")
-    if not isinstance(source_classification, dict):
-        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "missingSurfaceClassification", "success": False}}, False
     surface_classification = dict(source_classification)
+    repeatability_runtime = {
+        key: runtime[key]
+        for key in (
+            "cliVersion",
+            "effectiveConfigSha256",
+            "launcherSha256",
+            "nativeExecutableSha256",
+            "protocolCapabilities",
+            "transport",
+        )
+    }
     projection = {
         "contract": contract,
         "correlation": {"rootThreadObserved": True, "turnObserved": True},
         "evidenceKinds": ["agentMessageDelta", "turnCompleted", "turnStarted"],
-        "runtime": runtime,
-        "surfaceClassification": surface_classification,
+        "runtime": repeatability_runtime,
+        "surfaceClassification": {
+            method: surface_classification[method]
+            for method in sorted(REQUIRED_LIVE_SURFACES)
+        },
         "terminal": {
             "finalAgentText": LIVE_SENTINEL,
             "method": "turn/completed",
@@ -862,7 +876,7 @@ def wait_live_response(
     while True:
         message = receive_live_message(events, deadline)
         validator.validate_server(message, requests)
-        if has_tool_activity(message):
+        if has_disallowed_activity(message):
             raise LiveProbeFailure("toolActivityObserved")
         transcript.append({"direction": "serverToClient", "message": message})
         if message.get("id") != request_id:
@@ -884,14 +898,42 @@ def matching_terminal(message: dict[str, object], thread_id: str, turn_id: str) 
     )
 
 
-def has_tool_activity(message: dict[str, object]) -> bool:
+def has_disallowed_activity(message: dict[str, object]) -> bool:
     method = message.get("method")
-    if isinstance(method, str) and any(token in method.lower() for token in ("command", "filechange", "toolcall", "websearch", "applypatch")):
+    if not isinstance(method, str):
+        return False
+    if "id" in message:
+        return True
+    lowered = method.lower()
+    if any(
+        marker in lowered
+        for marker in (
+            "approval",
+            "commandexecution",
+            "filechange",
+            "mcptoolcall",
+            "dynamictoolcall",
+            "collabagenttoolcall",
+            "websearch",
+            "imagegeneration",
+            "applypatch",
+        )
+    ):
         return True
     params = message.get("params")
-    item = params.get("item") if isinstance(params, dict) else None
-    item_type = item.get("type") if isinstance(item, dict) else None
-    return item_type in {"commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "webSearch", "imageGeneration"}
+    if method in {"item/started", "item/completed"}:
+        item = params.get("item") if isinstance(params, dict) else None
+        item_type = item.get("type") if isinstance(item, dict) else None
+        return item_type not in {
+            "agentMessage",
+            "contextCompaction",
+            "enteredReviewMode",
+            "exitedReviewMode",
+            "plan",
+            "reasoning",
+            "userMessage",
+        }
+    return False
 
 
 def pinned_live_metadata(executable: Path, version: str) -> dict[str, object]:
@@ -1018,7 +1060,7 @@ def live_turn(output: Path, timeout_seconds: float) -> bool:
         while not already_terminal:
             message = receive_live_message(events, deadline)
             validator.validate_server(message, request_methods)
-            if has_tool_activity(message):
+            if has_disallowed_activity(message):
                 raise LiveProbeFailure("toolActivityObserved")
             transcript.append({"direction": "serverToClient", "message": message})
             already_terminal = matching_terminal(message, thread_id, turn_id)

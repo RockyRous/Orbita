@@ -1,8 +1,8 @@
 # Orbita M0 App Server probe
 
 This is a **throwaway M0 experiment**, not Orbita's production stack. It uses
-Python's standard library to exercise only the public Codex App Server process
-boundary over newline-delimited JSON on stdio.
+Python to exercise only the public Codex App Server process boundary over
+newline-delimited JSON on stdio.
 
 The probe is pinned to `codex-cli 0.170.0`. It fails closed for another reported
 version. The checked-in fixtures were produced with the launcher digest shown
@@ -10,7 +10,22 @@ in `fixtures/contract.json`; a different launcher is not silently accepted as
 equivalent. The native executable digest is recorded separately in
 `docs/protocol/m0-contract-research.md`.
 
-## Proven boundary
+## Current evidence status
+
+`fixtures/live-turn.json` predates the environment isolation, strict no-tools
+allowlist, generated-schema validation, complete runtime pinning, and fixture
+pair remediation. It is retained only as **obsolete historical evidence** and
+must not be used to close Issue #2.
+
+The current reviewed evidence is `fixtures/live-turn-1.json` and
+`fixtures/live-turn-2.json`. Both are fresh hardened runs: every required
+surface was schema-valid and classified, no server request or tool activity was
+observed, the matching terminal event was `turn/completed` with
+`status: "completed"`, and the final agent text was `ORBITA_M0_OK`. Their
+semantic projections share SHA-256
+`491637aea23170f7c5e2ea44c420299c38e8d3090b852be592e3c3d220e682d3`.
+
+The offline harness now validates the following intended live boundary:
 
 The live slice:
 
@@ -50,7 +65,10 @@ multi-megabyte snapshot.
 
 ## Requirements
 
-- Python 3.12 (standard library only)
+- Python 3.12
+- `jsonschema==4.26.0` from `requirements.txt`. This dependency is required to
+  validate the generated Draft 7 contract's nested `$ref`, `oneOf`, and `anyOf`
+  constructs reliably; the Python standard library has no JSON Schema validator.
 - Git on `PATH`
 - `codex-cli 0.170.0` on `PATH`
 
@@ -61,50 +79,31 @@ From the repository root:
 ```powershell
 python -B spikes/app-server-probe/probe.py capture-contract --output spikes/app-server-probe/fixtures/contract.json
 python -B spikes/app-server-probe/probe.py initialize --output spikes/app-server-probe/fixtures/initialize.json
-python -B spikes/app-server-probe/probe.py live-turn --confirm-live-model --timeout-seconds 120 --output spikes/app-server-probe/fixtures/live-turn.json
-python -B spikes/app-server-probe/probe.py live-turn --confirm-live-model --timeout-seconds 120 --output $env:TEMP/orbita-live-turn-run2.json
 python -B -m unittest discover -s spikes/app-server-probe/tests -v
-Get-FileHash -Algorithm SHA256 spikes/app-server-probe/fixtures/contract.json,spikes/app-server-probe/fixtures/initialize.json,spikes/app-server-probe/fixtures/live-turn.json
+Get-FileHash -Algorithm SHA256 spikes/app-server-probe/fixtures/contract.json,spikes/app-server-probe/fixtures/initialize.json,spikes/app-server-probe/fixtures/live-turn-1.json,spikes/app-server-probe/fixtures/live-turn-2.json
 ```
 
-`live-turn` consumes model quota, which is why the confirmation flag is
-mandatory. Each command overwrites only the explicitly supplied output file.
-Fixture changes require human review; regeneration is evidence, not automatic
-approval.
+The live command remains explicit opt-in and consumes model quota:
 
-## Observed live evidence
-
-Two clean-process runs succeeded on the pinned runtime. Each run consumed one
-minimal model turn. Both independently observed:
-
-- a source thread and turn identity;
-- matching `turn/started` and `item/agentMessage/delta` evidence;
-- matching `turn/completed` with status `completed`; and
-- final agent text exactly `ORBITA_M0_OK`.
-
-The raw runs legitimately differed in generated IDs and event ordinals. Their
-deterministic repeatability projections were equal, with SHA-256:
-
-```text
-1657805055ed8d6db9e54cde54e3a58de1fbdfc82e103aea2b22844c45a32860
+```powershell
+python -B spikes/app-server-probe/probe.py live-turn --confirm-live-model --timeout-seconds 120 --output <review-path>
 ```
 
-The reviewed sanitized `fixtures/live-turn.json` content SHA-256 is:
-
-```text
-dc8ca6b0375ea234cf224e3580fc98f3799e7bbac42d09b71eb437a9109527fd
-```
+Each command overwrites only the explicitly supplied output file. Fixture
+changes require human review; regeneration is evidence, not automatic approval.
 
 ## Surface classification for this pin
 
-| Surface | Generated profile | Live result |
+| Surface | Generated profile | Remediated live result |
 | --- | --- | --- |
-| `initialize` | stable | directly observed |
-| `initialized` | stable | directly observed |
-| `thread/start` | stable | directly observed |
-| `turn/start` | stable | directly observed, explicit opt-in only |
-| `item/agentMessage/delta` | stable | directly observed |
-| `turn/completed` | stable | directly observed with `completed` status |
+| `initialize` | stable | directly observed in both hardened runs |
+| `initialized` | stable | directly observed in both hardened runs |
+| `thread/start` | stable | directly observed in both hardened runs |
+| `turn/start` | stable | directly observed in both hardened runs |
+| `turn/started` | stable | directly observed in both hardened runs |
+| `item/agentMessage/delta` | stable | directly observed in both hardened runs |
+| `item/completed` | stable | directly observed in both hardened runs |
+| `turn/completed` | stable | directly observed in both hardened runs |
 
 Experimental schema generation is recorded separately and
 `capabilities.experimentalApi` is explicitly `false` in the live exchange.
