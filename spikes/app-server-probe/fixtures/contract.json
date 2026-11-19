@@ -1,0 +1,52 @@
+{
+  "contractSchemaVersion": 1,
+  "digestStrategy": {
+    "algorithm": "sha256",
+    "contractManifestEncoding": "canonical-json-utf8-lf",
+    "contractManifestEntry": [
+      "path",
+      "sha256"
+    ]
+  },
+  "generatedContract": {
+    "experimental": {
+      "bundleSha256": "e3f3b0a75918871280e808a186b33f583ec4a9eb1a1038c2bd13d2ae1c5dc8db",
+      "command": [
+        "codex",
+        "app-server",
+        "generate-json-schema",
+        "--experimental",
+        "--out",
+        "<temporary-directory>"
+      ],
+      "manifestSha256": "1ba3f58b199dee49d6ad7b0c6a2083e8a66c92dc8917dd1ef198aee2b6c30f8c",
+      "schemaFileCount": 479
+    },
+    "stable": {
+      "bundleSha256": "ca6123bc03238217a62a32c745b45e267fdb26825a80ce6849e893fcbe6628b8",
+      "command": [
+        "codex",
+        "app-server",
+        "generate-json-schema",
+        "--out",
+        "<temporary-directory>"
+      ],
+      "manifestSha256": "86d780e116e5d176752ec0065b55e81267c517b1b71423e22fa4af4a67357118",
+      "schemaFileCount": 329
+    }
+  },
+  "runtime": {
+    "cliVersion": "codex-cli 0.170.0",
+    "launcherSha256": "c54db6755e710c39703f7c37512f9e35ed41042d8080558d2b84b8d2694323c3",
+    "features": {
+      "experimentalApi": false
+    },
+    "transport": "stdio://"
+  },
+  "surfaceClassification": {
+    "initialize": "stable",
+    "initialized": "stable",
+    "thread/start": "stable",
+    "turn/start": "stable"
+  }
+}
