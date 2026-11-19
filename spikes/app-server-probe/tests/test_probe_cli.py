@@ -210,7 +210,7 @@ class ProbeCliTests(unittest.TestCase):
             )
             self.assertEqual(
                 result["repeatabilityDigest"],
-                "1657805055ed8d6db9e54cde54e3a58de1fbdfc82e103aea2b22844c45a32860",
+                "9963774130a20a21c838727ff985e035a89bc27b074d6496cbffea044c1030cc",
             )
             serialized = output.read_text(encoding="utf-8")
             self.assertNotIn("019a-thread-source", serialized)

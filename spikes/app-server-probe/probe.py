@@ -441,6 +441,10 @@ def initialize(output: Path) -> None:
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
+            if process.stdout is not None:
+                process.stdout.close()
+            if process.stderr is not None:
+                process.stderr.close()
 
     remove_disposable_directory(temp_root)
 
