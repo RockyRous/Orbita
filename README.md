@@ -29,6 +29,17 @@ Canonical documentation:
 - [Threat model](docs/security/threat-model.md) and [data policy](docs/security/diagnostics-and-data.md)
 - [Draft M0 ticket breakdown](docs/planning/m0-tickets.md)
 
+## Run the observer preview
+
+The current UI is a local fixture-backed preview; it does not start Codex work.
+On Windows, run:
+
+```powershell
+.\scripts\start-observer.ps1
+```
+
+It opens a loopback-only browser app. Press `Ctrl+C` in the PowerShell window to stop it.
+
 ## Contributing
 
 Contributions are welcome once implementation begins. Please read [CONTRIBUTING.md](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), and use GitHub Issues to discuss substantial changes before opening a pull request. The draft M0 tickets have not been published yet.
