@@ -1,50 +1,37 @@
 # Gated Roadmap
 
-Orbita advances through evidence gates, not calendar milestones. A phase begins only when its entry conditions are satisfied and ends only when its completion criteria are demonstrated.
+Orbita advances through evidence and product gates, not calendar milestones.
 
-## M0: Protocol proof
+## M0: Integration and interaction proof
 
-**Purpose:** determine whether the current Codex App Server can support a truthful agent-execution workspace.
+**Purpose:** prove the supported Codex behaviors required for a complete root chat and truthful execution tracker.
 
-**Entry:** a local Codex installation is available for a pinned experiment.
+Record root-thread and turn behavior, streamed content/event variants, follow-up, interruption, close/reconnect behavior, agent identity/role/lineage evidence, approvals, data volume, sensitive payloads, and sanitized fixtures. The previous Tkinter observer is frozen spike output, not product UI.
 
-**Exit:** the [M0 spike plan](../protocol/spike-plan.md) has reproducible fixtures, capability and recovery matrices, data measurements, contract tests, and a documented go/no-go result.
+**Exit:** reproducible fixtures, capability and recovery matrices, event-volume measurements, contract tests, and a documented claim for every MVP capability.
 
-No production desktop architecture is selected before this gate.
+## M1: Functional root chat
 
-## M1: Root-task observer
+**Purpose:** replace the terminal for one supported Codex conversation.
 
-**Purpose:** deliver the narrowest end-to-end path from project selection to one root-task outcome.
+**Exit:** on Windows, a user selects a project, starts or resumes one root task, reads the supported transcript, sends follow-ups, handles supported questions and approvals, interrupts a turn, and understands errors or disconnects. Unknown events have a safe visible fallback; no tracker capability is simulated.
 
-**Entry:** M0 identifies a supported root launch, follow-up, interrupt, and
-terminal-outcome path, with unsupported capabilities visibly degraded.
+## M2: Observable execution and workflow workspace
 
-**Exit:** a user can select one project, launch one root task, see source-backed root activity, interrupt it, send a follow-up, receive a terminal outcome with visible provenance, and see unsupported recovery as a gap.
+**Purpose:** make agent work and the product workflow understandable beside the conversation.
 
-## M2: Observable execution workspace
+**Exit:** real executions appear as source-driven rows; roles, assignments, lineage, activity, attention, and outcomes are only shown where supported; explicit plans and GitHub work-item references appear as distinct workflow context; selecting a row navigates to its chat evidence.
 
-**Purpose:** make supported subagent work understandable outside a transcript.
+## M3: Continuity, lifecycle, and diagnostics
 
-**Entry:** M1 is reliable and M0 proved the minimum subagent evidence.
+**Purpose:** make the combined chat and tracker dependable across long work, disconnects, restarts, and protocol drift.
 
-**Exit:** supported agent executions appear in a hierarchy, task cards and attention states are evidence-driven, unknown data is explicit, and approvals can be handled safely.
+**Exit:** reconciliation avoids duplicates, gaps are visible, lifecycle and Automatic Finish obey safety conditions, closing does not silently destroy work, local data can be cleared/exported safely, and large transcripts remain responsive.
 
-## M3: Continuity and diagnostics
+## M4: Open-source Windows MVP
 
-**Purpose:** make the workspace dependable across disconnects, restarts, and protocol drift.
-
-**Entry:** M2 projections are deterministic against recorded fixtures.
-
-**Exit:** restart and reconciliation avoid duplicates, gaps are visible, local data can be cleared, diagnostic export is sanitized, and compatibility failures degrade safely.
-
-## M4: Open-source release
-
-**Purpose:** make the proven single-user workflow installable and supportable.
-
-**Entry:** the MVP success criteria pass on a clean supported Windows environment.
-
-**Exit:** signed release artifacts, reproducible checks, dependency notices, security reporting, setup documentation, supported-version policy, and known limitations are published.
+**Exit:** a clean Windows environment passes MVP criteria; packaging, checksums, licenses, security reporting, data behavior, setup, supported versions, and known limitations are published.
 
 ## Later opportunities
 
-Only evidence from real use may justify additional root-task concurrency, multiple projects, richer history, remote access, additional harnesses, or broader development workflows. These are not committed roadmap scope.
+Evidence from use may justify multiple root tasks/projects, richer GitHub operations, manual planning, supported subagent controls, remote/mobile clients, other harnesses, or IDE/worktree features. None is committed now.

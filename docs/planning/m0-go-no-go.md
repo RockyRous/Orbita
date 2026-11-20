@@ -2,7 +2,7 @@
 
 ## Decision status
 
-**Current recommendation: no-go for the full task-centric agent workspace.** This is an evidence assessment for GitHub issue #8, not a product decision, issue closure, or approval to build production UI. A human must choose go, re-scope, or stop after the remaining live evidence is reviewed.
+**Historical M0 recommendation: no-go for the full task-centric agent workspace.** The user superseded the resulting root-task-observer product direction on 2026-11-20. This evidence assessment remains valid as a limit on protocol claims; product direction is now documented in `docs/product/` and ADR 0003.
 
 The assessment is pinned to `codex-cli 0.170.0`, the native executable digest `8d06dc231dba649c7d48d3eecab239c452a1ac498c41dd6492a6f301b90a22ce`, and stable-only generated bindings. App Server and its generators remain CLI-marked experimental. See [M0 contract research](../protocol/m0-contract-research.md).
 
@@ -42,9 +42,9 @@ No live fixture establishes a supported approval/user-question request, human re
 
 No client-only restart, client-and-runtime restart, or active-work failure has proven source identity recovery, pagination, de-duplication, parent-edge recovery, or an explicit gap. `thread/read` and history-list methods are candidates, not proof. See [continuity research](../protocol/m0-continuity-research.md).
 
-## Conditional re-scope that is currently defensible
+## Historical conditional re-scope
 
-If the human elects re-scope, the MVP may be limited to a **single local root-task observer** for the exact pinned runtime:
+The prior re-scope limited an MVP to a **single local root-task observer** for the exact pinned runtime:
 
 - start one root task; show its source-backed turn lifecycle and terminal outcome;
 - support a same-thread follow-up and a correlated interrupt where the existing pin evidence applies;

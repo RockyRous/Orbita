@@ -2,7 +2,7 @@
 
 ## Scope
 
-This threat model covers the single-user, local Windows MVP: one project, one root task, a local Codex App Server, local projections, a bounded diagnostic buffer, and a desktop user interface. Remote access, multi-user operation, plugins, and additional harnesses are outside the MVP.
+This threat model covers the single-user, local Windows MVP: one project, one root chat, observable execution tracking, workflow links, a local Codex App Server child, local projections, a bounded diagnostic buffer, and a Tauri desktop interface. Remote access, multi-user operation, plugins, and additional harnesses are outside the MVP.
 
 ## Assets
 
@@ -42,13 +42,19 @@ This threat model covers the single-user, local Windows MVP: one project, one ro
 
 **Risk:** untrusted Markdown, HTML, links, ANSI sequences, file names, or tool output executes script or invokes privileged application actions.
 
-**Controls:** safe rendering, restrictive content policy, no remote executable content, explicit link handling, and a narrow native-command allowlist. Framework-specific controls are selected after M0.
+**Controls:** safe rendering, restrictive content policy, no remote executable content, explicit link handling, a narrow native-command allowlist, strict Tauri CSP, and least-privilege Tauri capabilities bound to the main window. The React webview does not receive shell/process or broad filesystem permissions.
 
 ### Process and argument injection
 
 **Risk:** a project path or user value is interpolated into a shell command.
 
 **Controls:** structured process arguments, explicit working directories, no shell interpolation, and validation of the executable and runtime version.
+
+### Webview-to-native privilege escalation
+
+**Risk:** rendered chat content or a compromised webview invokes a privileged native command, accesses raw protocol data, or broadens application permissions.
+
+**Controls:** Rust exclusively owns the App Server child and raw protocol adapter; frontend IPC uses typed, lifecycle-validated commands and ordered projection updates; no general shell plugin, arbitrary process spawn, remote origin, or wildcard filesystem capability is granted. Raw protocol data and credentials never become frontend storage.
 
 ### Filesystem escape
 

@@ -1,54 +1,28 @@
 # Orbita
 
-**Orbita** is a local-first visual control plane for Codex on Windows. Its first implementation is a source-driven root-task observer: activity, outcomes, follow-up, interrupt, provenance, and explicit gaps for one local root task.
+Orbita is a Windows-first desktop client for Codex. Its product direction is a functional Codex chat beside a source-driven tracker of observable agent work and related workflow context.
 
-> Status: M1 root-task observer interface is in implementation. Hierarchy, approvals, and recovery remain evidence-gated.
+> Status: documentation and architecture reset in progress. The previous fixture-backed observer was deleted; there is not yet a runnable product application.
 
 ## Product direction
 
-- Start a root task through the public Codex App Server integration surface.
-- Make observable agent work understandable without reconstructing it from a full transcript.
-- Show only source-backed agent executions, relationships, statuses, outcomes, and attention.
-- Handle supported approvals, interruption, and root-task follow-up without adding a custom orchestrator.
-- Recover a coherent local task workspace after restart and show missing evidence as gaps.
+- Conduct supported Codex work in a desktop chat instead of returning to the terminal.
+- Show real observable agent executions, their evidence-backed status, and direct relationships when available.
+- Show plans, roles, and GitHub work items as explicit workflow context—not as invented agents or task rows.
+- Use the public Codex App Server through a versioned adapter; never infer completion or hidden hierarchy.
 
-The initial platform is Windows 11. The product is currently gated on an App Server protocol spike; no runtime version is supported yet.
+## Canonical documents
 
-## Project status
-
-The repository is in specification and protocol-validation planning. Production implementation starts only after the M0 go/no-go gate.
-
-Canonical documentation:
-
-- [Product vision](docs/product/vision.md)
-- [Bounded MVP](docs/product/mvp.md)
-- [Gated roadmap](docs/product/roadmap.md)
+- [Product vision](docs/product/vision.md), [MVP scope](docs/product/mvp.md), and [roadmap](docs/product/roadmap.md)
 - [Core flows](docs/ux/core-flows.md) and [state model](docs/ux/state-model.md)
-- [Architecture boundary](docs/architecture/overview.md)
-- [Compatibility status](docs/protocol/compatibility.md) and [M0 spike plan](docs/protocol/spike-plan.md)
-- [Threat model](docs/security/threat-model.md) and [data policy](docs/security/diagnostics-and-data.md)
-- [Draft M0 ticket breakdown](docs/planning/m0-tickets.md)
-
-## Run the observer preview
-
-The current UI is a native Windows fixture-backed preview; it does not start Codex work.
-On Windows, run:
-
-```powershell
-.\scripts\start-observer.ps1
-```
-
-It opens the native desktop app. Close its window to stop it. To use the old
-loopback browser preview explicitly, run `./scripts/start-observer.ps1 -BrowserPreview`.
+- [Architecture](docs/architecture/overview.md) and [Tauri decision](docs/adr/0003-tauri-desktop-client.md)
+- [Desktop implementation plan](docs/planning/desktop-mvp-plan.md)
+- [Compatibility](docs/protocol/compatibility.md), [spike plan](docs/protocol/spike-plan.md), [security model](docs/security/threat-model.md), and [data policy](docs/security/diagnostics-and-data.md)
 
 ## Contributing
 
-Contributions are welcome once implementation begins. Please read [CONTRIBUTING.md](CONTRIBUTING.md), follow the [Code of Conduct](CODE_OF_CONDUCT.md), and use GitHub Issues to discuss substantial changes before opening a pull request. The draft M0 tickets have not been published yet.
+Use GitHub Issues for substantial changes and read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). The source code of Happier, bb, and CodexUI is not an Orbita dependency or implementation base.
 
-## Security
+## Security and license
 
-Please report vulnerabilities privately according to [SECURITY.md](SECURITY.md), rather than opening a public issue.
-
-## License
-
-Orbita is licensed under the [MIT License](LICENSE).
+Report vulnerabilities privately through [SECURITY.md](SECURITY.md). Orbita is licensed under [MIT](LICENSE).

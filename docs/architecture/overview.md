@@ -1,93 +1,43 @@
 # Architecture Overview
 
-## Architectural boundary
+## Boundary and topology
 
-Orbita is a client of the public Codex App Server contract. Codex owns model interaction, conversation state, tool execution, sandbox and approval policy, agent orchestration, and the authoritative execution history. Orbita owns the task-centric user experience, supported user actions, local projections, continuity metadata, and diagnostics.
+Codex owns model interaction, conversation state, tools, sandbox, approvals, orchestration, and authoritative execution history. Orbita owns the desktop user experience, supported commands, normalized projection, workflow links, and bounded diagnostics.
 
-This boundary is recorded in [ADR 0001](../adr/0001-app-server-boundary.md).
-
-## Confirmed components
-
-```mermaid
-flowchart LR
-  USER[User] --> UI[Task-centric UI]
-  UI --> ACTIONS[Supported actions]
-  ACTIONS --> ADAPTER[Versioned App Server adapter]
-  ADAPTER <--> CODEX[Codex App Server]
-  CODEX --> EVENTS[Observed protocol events]
-  EVENTS --> ADAPTER
-  ADAPTER --> PROJECTION[Normalized projection]
-  PROJECTION --> UI
-  PROJECTION --> LOCAL[Local continuity data]
-  EVENTS --> RAW[Bounded diagnostic buffer]
+```text
+React/TypeScript desktop UI
+  ├─ Root chat
+  ├─ Execution tracker
+  └─ Workflow context
+             │ typed Tauri commands + ordered projection channel
+Rust application core
+  ├─ runtime/version gate
+  ├─ App Server process supervisor
+  ├─ versioned protocol adapter
+  ├─ normalized projection and provenance
+  └─ redaction and bounded diagnostics
+             │ newline-delimited JSON over child stdio
+Codex App Server → selected local project under Codex policy
 ```
 
-The diagram describes responsibilities, not a framework, process topology, database, or IPC choice.
+The React webview does not start processes, read the project, or own raw App Server semantics. Rust owns executable validation, structured arguments/cwd, stdin/stdout/stderr handling, initialization, correlation, validation, terminal classification, redaction, queues, and shutdown.
 
-## Current implementation scope
+## Production shell
 
-M1 implements the UI as a **root-task observer**. The visible projection is
-limited to the evidence currently proven for the pinned runtime: root turns,
-follow-up, interrupt, terminal outcome, provenance, and explicit gaps. A
-subagent tree, approval actions, and recovered history remain absent rather
-than represented by placeholders that could imply support.
+Orbita uses **Tauri 2** with **React, TypeScript, and Vite** for its Windows-first desktop shell. The detailed decision and least-privilege rules are [ADR 0003](../adr/0003-tauri-desktop-client.md). The fixture browser/Tkinter observer is not part of this topology.
 
-## Responsibility boundaries
+## Projection boundary
 
-### Codex App Server
+Frontend state consists of product types such as runtime state, root-task/turn/activity projections, gaps, supported actions, and command results. Raw App Server requests and notifications remain behind a generated, versioned Rust adapter. An ordered channel carries sequence-numbered updates; a sequence gap triggers a snapshot request, never an invented intermediate state.
 
-- Owns threads, turns, agent execution, tools, approvals, sandboxing, and supported runtime controls.
-- Exposes versioned requests, responses, notifications, and recoverable history.
-- Remains the execution source of truth.
+## Compatibility and evidence
 
-### Versioned adapter
+The exact runtime remains pinned and capability-gated. Matching `turn/completed` is the only terminal source for a turn. EOF, process exit, timeouts, silence, item completion, and narration are never completion evidence. Unknown variants degrade only their affected projection and produce diagnostic/gap evidence.
 
-- Uses generated contracts from the pinned runtime where available.
-- Validates messages and isolates version-specific behavior.
-- Preserves unknown variants for bounded diagnostics without crashing the task workspace.
-- Maps only proven source evidence into product-level projections.
+## Workflow context
 
-### Normalized projection
+Plans, roles, and GitHub work items are explicit, provenance-carrying records separate from executions. A workflow link does not create an execution row, and an execution outcome does not mutate an issue.
 
-- Correlates supported root and subagent execution evidence.
-- Separates lifecycle, execution status, attention, and provenance.
-- Deduplicates replayed events.
-- Records gaps and weaker fallback representations when evidence is incomplete.
+## Deferred decisions
 
-### Task-centric UI
-
-- Displays the projection, not raw protocol lines.
-- Sends only supported actions.
-- Never synthesizes agent delegation, execution outcomes, or hidden reasoning.
-
-### Local continuity and diagnostics
-
-- Durable normalized data supports restart and review.
-- A bounded raw-event buffer supports diagnosis and protocol evolution.
-- Local data never replaces App Server as the authority on what executed.
-
-## Runtime ownership
-
-The product requires safe background continuation when the proven runtime path supports it, explicit warning otherwise, and reconciliation rather than silent replacement after failure.
-
-Whether the implementation uses an embedded child process, a managed daemon, or another public App Server mode is deliberately unresolved. M0 must compare supported behavior for launch ownership, shutdown, reconnect, history, approvals, and versioning before an architecture decision is made.
-
-## Compatibility
-
-- Runtime version and contract capabilities are checked explicitly.
-- Unsupported versions fail clearly or degrade through documented capability fallbacks.
-- Unknown variants remain diagnostic evidence and do not take down unrelated sessions.
-- Protocol field names and method payloads are generated or verified against the pinned runtime, not copied from stale prose.
-
-## Decisions deferred to evidence
-
-M0 must inform, rather than inherit, the choice of:
-
-- desktop framework and IPC mechanism;
-- runtime process topology;
-- local persistence engine and schema;
-- exact status mapping;
-- retention limits and compression;
-- recovery and migration strategy.
-
-No production stack is canonical until the M0 exit criteria pass.
+Persistence engine, signing/update channel, background service, production recovery topology, status mapping beyond evidence, and support beyond the pinned runtime require separate evidence and decisions.

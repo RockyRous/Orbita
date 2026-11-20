@@ -2,120 +2,68 @@
 
 ## Product boundary
 
-**Current implementation re-scope:** M1 is a root-task observer for the pinned
-runtime, following the M0 assessment. It includes root launch, source-backed
-turn activity/outcome, same-thread follow-up, interrupt, and explicit gaps. It
-does not include a subagent hierarchy, actionable approvals, or recovery claims
-until the corresponding M0 evidence exists. See [ADR 0002](../adr/0002-root-task-observer.md).
+The MVP is a Windows-first desktop application for one local user. The user selects one local project and may have one open root task at a time. It contains one functionally complete Codex chat and any agent executions actually observable through the supported integration.
 
-The MVP serves one local user on Windows 11. The user selects one local project and can have one open root task at a time. That root task may contain any number of subagent executions actually exposed by Codex.
+The fixture-backed Tkinter observer is protocol-spike output, not product UI. Individual capabilities remain gated by reproducible protocol evidence. Unsupported data is unavailable, unknown, or a gap; it is never reconstructed from assumptions.
 
-The product proceeds only after the M0 protocol spike satisfies the go/no-go criteria in [the spike plan](../protocol/spike-plan.md).
+## Primary workspace
+
+The workspace has three coordinated regions:
+
+1. **Navigation:** current project, active root task, finished/archived history, task status and attention.
+2. **Root chat:** complete ordered Codex conversation; streamed output; supported tools, commands, plans, questions, approvals, errors, composer, follow-ups, interruption, and runtime controls.
+3. **Execution tracker:** resizable/collapsible table with one row per observable agent execution and links to chat evidence and workflow context.
 
 ## Included behavior
 
-- Detect a compatible local Codex installation and report incompatibility clearly.
-- Select one local project.
-- Start one root task from Orbita.
-- Send a compact initial instruction and follow-ups to the root task.
-- Present observable root and subagent executions as a source-driven hierarchy.
-- Show task cards with only supported identity, assignment or summary, relationship, execution status, last activity, outcome, and provenance.
-- Show a focused evidence timeline for an execution.
-- Surface approvals and supported user questions as attention.
-- Let the user respond to approvals, interrupt the current root turn, and send a follow-up to the root task.
-- Recover a coherent task workspace after restart, within the evidence the App Server can restore.
-- Mark missing history and ambiguous states explicitly.
-- Finish and archive root tasks without deleting their history.
+### Functional Codex chat
 
-Capabilities such as parent-child relationships, detailed subagent history, granular statuses, and recovery depth are included only to the extent that M0 proves them.
+- Detect a compatible local Codex installation, select a project, and start one root task from Orbita.
+- Show the available transcript in source order and stream assistant output without blocking controls.
+- Render supported tool calls, command activity, results, file changes, plans, errors, approvals, and questions.
+- Preserve an unknown event as a safe generic event instead of dropping it.
+- Send initial instructions and follow-ups; interrupt the current root turn.
+- Show terminal outcomes, disconnects, reconciliation, and recovery truthfully where supported.
+- Expose model, mode, effort, queueing, and resume only where the pinned contract supports them.
 
-## Root-task lifecycle
+### Execution tracker
 
-A root task is bound to one Codex thread and may contain multiple turns.
+- Create a row only for an observable agent execution.
+- Show the root and supported subagent executions; nest only on a supported parent relationship.
+- Show an unlinked execution when it is observed but its parent is unknown.
+- Display only source-backed identity, role, assignment, status, last activity, duration, attention, and outcome.
+- Navigate from a row to available chat evidence. The tracker is read-only; it is not a manual board.
 
-| Lifecycle state | Meaning |
-| --- | --- |
-| `Open` | Occupies the single active slot and may run a turn or accept a follow-up. |
-| `Finished` | Releases the active slot while preserving the thread and history. |
-| `Archived` | Reversibly hides a finished task from the primary workspace. |
+### Workflow context
 
-Turn completion does not erase the distinction between execution outcome and user review. A finished task can still require review.
+Orbita makes our process visible without claiming it is runtime state. It may show explicitly reported plans, assigned roles, GitHub issues, and associations to root tasks or executions. Each association carries provenance: a Codex event, an explicit user association, an app record, or an authorized external lookup.
 
-`Interrupt` stops the current turn but does not finish the root task. A manual **Finish task** action releases the active slot. Archive is available only for a finished task and is reversible. Destructive deletion is outside the MVP.
+A plan item or GitHub issue remains a **work item**, not an **agent execution**. The MVP may display and open an explicit issue reference; authoring, triage, and synchronization stay out of scope.
 
-Sending a follow-up to a finished task reactivates the same root task and thread when the active slot is free. An archived task must first be unarchived.
+### Attention, lifecycle, and continuity
 
-## Automatic Finish
-
-Automatic Finish is enabled by default and can be disabled.
-
-It may run only after an authoritative settled successful turn outcome when:
-
-- no approval or supported user question is pending;
-- no child execution is observably active or waiting;
-- no connection or recovery gap is unresolved;
-- reconciliation has completed; and
-- the outcome is neither ambiguous nor unknown.
-
-If any condition is unproven, the root task remains open. Automatic Finish never runs for failed, interrupted, cancelled, disconnected, or unknown outcomes.
-
-Automatic Finish releases the active slot and preserves `Review required`. It does not archive, delete, summarize, start another task, or rewrite the source outcome.
-
-No product-level countdown is required. M0 determines which protocol evidence represents a settled successful outcome.
-
-## Attention model
-
-Attention is independent from execution status.
-
-| Attention state | Meaning |
-| --- | --- |
-| `Action required` | A supported approval or user question is pending. |
-| `Review required` | A turn succeeded, failed, or was interrupted and its outcome has not been reviewed. |
-| `Connection problem` | The task is disconnected or degraded and reconciliation is incomplete. |
-| `No attention` | No user action or review is currently required. |
-
-Acknowledging attention changes only Orbita's attention state. It never changes an agent execution status or source outcome.
-
-## Project and window behavior
-
-- The active project cannot be switched while a root task is open. The user must finish it or explicitly interrupt and finish it first.
-- Closing the UI must not silently stop active work.
-- If M0 proves a safe background runtime path, work continues and reconciles when Orbita returns.
-- Otherwise Orbita warns the user before stopping active work.
-- Orbita may reconnect to and reconcile an existing root task, but it never silently starts a replacement task after a runtime failure.
+- Supported approvals and user questions become `Action required`; terminal outcomes become `Review required`; gaps become `Connection problem`.
+- Root follow-up and interruption are supported only after a proven round trip. Direct subagent control is excluded until proven.
+- A root task is `Open`, `Finished`, or `Archived`. Interrupt affects a turn, not lifecycle. Finish and Archive preserve history; delete is excluded.
+- Automatic Finish is on by default but runs only after a settled successful source outcome, no pending approval/question, no observably active child, no unresolved gap, and completed reconciliation. Uncertainty keeps the task open.
+- Local normalized projections support reopening; reconciliation never starts a replacement task and missing intervals remain gaps.
 
 ## Quality requirements
 
-- Active event streaming must not make core controls unresponsive.
-- In-memory and persisted event data must remain bounded.
-- Unknown protocol variants must degrade the affected projection without taking down unrelated work.
-- Partial failures are visible and retries are bounded.
-- Project paths with spaces and supported Windows path forms work without shell interpolation.
-- Keyboard navigation reaches the root input, task hierarchy, task details, attention, and supported actions.
-- Execution and attention states are distinguishable without relying on color alone.
-- Code, command, error, and diagnostic output remains readable and safely rendered.
+- Chat streaming and tracker updates keep the composer responsive.
+- Long transcripts and execution tables remain navigable; states are distinguishable without color alone.
+- Project paths with spaces work without shell interpolation.
+- Rendered output is untrusted and cannot execute privileged UI actions.
+- Persistence is bounded, local by default, redacted before storage/export, and user-clearable.
 - No telemetry or diagnostic upload is enabled by default.
-- Performance thresholds are set from M0 event-volume measurements and later UI profiling, not inherited as arbitrary targets.
 
 ## Out of scope
 
-- Multiple simultaneous root tasks or projects.
-- Arbitrary live-session attachment.
-- Manual or editable task cards.
-- A full transcript-oriented chat experience.
-- Direct subagent messaging or control without a public API.
-- A built-in editor, terminal, Git workflow, or graph editor.
-- Remote access, mobile, multi-user collaboration, telemetry, and automatic updates.
-- Plugin, MCP, skill, model, or runtime-profile management.
+- Multiple active root tasks/projects; arbitrary live-session attachment; manual rows or Kanban.
+- Treating plans or issues as execution rows; full GitHub issue management.
+- Direct subagent messaging/control without a public contract.
+- Editor, full terminal, Git workflow, remote/mobile/team features, multiple harnesses, or marketplace.
 
 ## MVP success criteria
 
-The MVP succeeds when the first user can:
-
-1. Launch a real root task from Orbita.
-2. Understand which observable agents are working and how they relate without reading a complete chat transcript.
-3. See every supported event that requires attention.
-4. Handle an approval, interrupt a turn, and send a root-task follow-up.
-5. Restart Orbita and recover a coherent task workspace without duplicate or fabricated state.
-6. Distinguish source-backed information from unavailable, ambiguous, or missing information.
-7. Finish and archive a root task without losing its history.
+The user can select a project; launch a real task; conduct the supported Codex conversation without the terminal; see available activity/outcomes; understand observable agents, roles, assignments, and status; see linked plan/issue context distinctly; navigate between a row and its evidence; use proven follow-up/interrupt/approval controls; and reopen without fabricated or duplicate state.

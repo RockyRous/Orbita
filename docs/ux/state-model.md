@@ -1,72 +1,35 @@
 # State Model
 
-Orbita keeps lifecycle, execution, and attention separate. Combining them would make states such as "the turn succeeded but the user has not reviewed it" impossible to express truthfully.
+Orbita keeps lifecycle, turn outcome, execution status, connection state, attention, and workflow association separate. This permits truthful combinations such as: a successful root turn, an active child, pending review, and an open GitHub issue.
 
 ## Root-task lifecycle
 
-| State | Occupies active slot | Accepts follow-up | Visible in primary workspace |
+| State | Active slot | Follow-up | Primary workspace |
 | --- | --- | --- | --- |
-| `Open` | Yes | Yes | Yes |
-| `Finished` | No | Yes, by reactivation | Yes |
-| `Archived` | No | After unarchive | No |
+| `Open` | yes | yes | yes |
+| `Finished` | no | reactivates when slot is free | yes |
+| `Archived` | no | after unarchive | no |
 
-Lifecycle is Orbita organizational state. It does not overwrite Codex execution outcomes.
+Lifecycle is Orbita organization, never a replacement for Codex outcomes, execution state, or external issue state. `Interrupt` affects a turn, not lifecycle.
 
-### Lifecycle transitions
+## Turn and chat state
 
-```text
-new root task -> Open
-Open --manual Finish--> Finished
-Open --eligible Automatic Finish--> Finished
-Finished --follow-up, active slot free--> Open
-Finished --Archive--> Archived
-Archived --Unarchive--> Finished
-```
+A local message moves `Draft → Sending → Accepted` or `Send failed`; only accepted input is authoritative conversation. A terminal outcome is only `Successful`, `Failed`, `Interrupted`, `Cancelled` when distinguishable, or `Unknown`—never inferred from silence, EOF, timeout, or animation. Streamed events may be in progress, settled, degraded, or unknown-but-preserved.
 
-Interrupt affects the current turn, not the lifecycle. Destructive deletion is outside the MVP.
+## Agent execution
 
-## Turn outcome
+The compatibility matrix maps supported evidence to `Observed`, `Active`, `Waiting`, `Successful`, `Failed`, `Interrupted`, `Disconnected`, or `Unknown`. Status never comes only from plan text, issue state, agent prose, a sibling, or absent events.
 
-A turn outcome is accepted only from authoritative protocol evidence. The exact protocol mapping is determined by M0.
+An execution can have a supported parent, be root, or have an unknown parent. Unknown parentage prevents an edge, not the row. Delegation requires supported relation and assignment evidence.
 
-Product-level outcome categories are:
+## Workflow associations
 
-- successful;
-- failed;
-- interrupted or cancelled;
-- unknown.
+Roles, plan items, and work items are independent records. Their association is `Linked` only with explicit evidence, `Unresolved` when a reference cannot resolve, and `Unavailable` when no source supplies it. Completion of an execution never changes an external work item.
 
-No timeout, lack of events, or disappearing indicator is sufficient evidence of success.
+## Connection and attention
 
-## Agent-execution status
+Connection is `Connected`, `Reconnecting`, `Degraded`, or `Disconnected`; it constrains claims but does not decide outcomes. Attention is `Action required`, `Review required`, `Connection problem`, or `No attention`. Clearing one trigger never clears unrelated state.
 
-Execution status is source-driven. The UI may use semantic categories such as observed, active, waiting, successful, failed, interrupted, disconnected, and unknown only when the pinned protocol provides enough evidence for each mapping.
+## Automatic Finish, provenance, and gaps
 
-M0 owns the canonical mapping table. Unsupported distinctions collapse to a weaker truthful category, usually `unknown`.
-
-## Attention state
-
-| State | Trigger | Clear condition |
-| --- | --- | --- |
-| `Action required` | Supported approval or user question | The request is resolved. |
-| `Review required` | A terminal turn outcome has not been reviewed | The user acknowledges the result or starts a follow-up. |
-| `Connection problem` | Disconnect, degradation, or unresolved recovery gap | Reconciliation succeeds or the problem is explicitly resolved. |
-| `No attention` | No outstanding attention evidence | A new attention trigger occurs. |
-
-Attention acknowledgement never changes execution status.
-
-## Automatic Finish eligibility
-
-Automatic Finish is enabled by default and is configurable. It is eligible only when all of the following are proven:
-
-1. The root turn has an authoritative settled successful outcome.
-2. No approval or supported question is pending.
-3. No child execution is observably active or waiting.
-4. No connection or recovery gap is unresolved.
-5. Reconciliation is complete.
-
-Any uncertainty makes Automatic Finish ineligible. When it runs, lifecycle changes to `Finished`, the active slot is released, and `Review required` remains. It never archives, deletes, summarizes, or starts work.
-
-## Provenance and gaps
-
-Every status-bearing projection records the evidence needed to explain it. Derived fields identify their derivation rule. When evidence cannot be recovered, the model records a gap rather than interpreting the absence as inactivity or completion.
+Automatic Finish requires a settled successful root outcome, no pending supported question/approval, no observably active child, no unresolved gap, and completed reconciliation. It changes only lifecycle to `Finished` and retains review attention. Every status-bearing projection records its evidence; missing evidence creates a gap rather than implied inactivity or success.
