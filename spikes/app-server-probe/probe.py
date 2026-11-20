@@ -204,6 +204,7 @@ class GeneratedContractValidator:
         self.response_results = {
             "initialize": load("v1/InitializeResponse.json"),
             "thread/start": load("v2/ThreadStartResponse.json"),
+            "thread/read": load("v2/ThreadReadResponse.json"),
             "turn/start": load("v2/TurnStartResponse.json"),
             "turn/interrupt": load("v2/TurnInterruptResponse.json"),
         }
@@ -846,6 +847,40 @@ def normalize_delegation_capture(capture: dict[str, object]) -> tuple[dict[str, 
     def failure(category: str) -> tuple[dict[str, object], bool]:
         return {"fixtureSchemaVersion": 1, "outcome": {"failure": category, "success": False}}, False
 
+    request_methods = {
+        entry["message"].get("id"): entry["message"].get("method")
+        for entry in messages
+        if isinstance(entry, dict) and entry.get("direction") == "clientToServer"
+        and isinstance(entry.get("message"), dict) and "id" in entry["message"]
+    }
+    root_thread_id: str | None = None
+    direct_lineage: dict[str, str] = {}
+    for entry in messages:
+        if not isinstance(entry, dict) or entry.get("direction") != "serverToClient" or not isinstance(entry.get("message"), dict):
+            continue
+        message = entry["message"]
+        result = message.get("result")
+        thread = result.get("thread") if isinstance(result, dict) else None
+        if not isinstance(thread, dict):
+            continue
+        if request_methods.get(message.get("id")) == "thread/start" and isinstance(thread.get("id"), str):
+            root_thread_id = thread["id"]
+        if request_methods.get(message.get("id")) == "thread/read":
+            child_id, parent_id = thread.get("id"), thread.get("parentThreadId")
+            if isinstance(child_id, str) and isinstance(parent_id, str):
+                direct_lineage[child_id] = parent_id
+    if root_thread_id is not None and direct_lineage:
+        parent_thread_id = root_thread_id
+        for child_id, parent_id in direct_lineage.items():
+            if parent_id != root_thread_id:
+                return failure("ambiguousParentIdentity")
+            children[child_id] = {
+                "assignment": None, "assignmentClassification": "unavailable", "activityOrdinals": [],
+                "parentThreadId": parent_id, "status": None, "statusOrdinal": None,
+                "turnOutcome": None, "turnOrdinal": None,
+            }
+            transcript.append({"kind": "threadLineage", "ordinal": -1, "parent": parent_id, "child": child_id})
+
     for ordinal, entry in enumerate(messages):
         if not isinstance(entry, dict) or entry.get("direction") != "serverToClient":
             continue
@@ -879,8 +914,8 @@ def normalize_delegation_capture(capture: dict[str, object]) -> tuple[dict[str, 
                 for receiver in receivers:
                     if not isinstance(receiver, str) or not receiver:
                         return failure("invalidContractMessage")
-                    if receiver in children:
-                        return failure("duplicateChildIdentity")
+                    if receiver in children and children[receiver]["parentThreadId"] != sender:
+                        return failure("ambiguousParentIdentity")
                     state = states.get(receiver)
                     status = state.get("status") if isinstance(state, dict) else None
                     if not isinstance(status, str) or status not in allowed_agent_states:
@@ -915,6 +950,9 @@ def normalize_delegation_capture(capture: dict[str, object]) -> tuple[dict[str, 
                     return failure("ambiguousChildOutcome")
                 children[child_id]["turnOutcome"] = status
                 children[child_id]["turnOrdinal"] = ordinal
+                if children[child_id]["status"] is None:
+                    children[child_id]["status"] = status
+                    children[child_id]["statusOrdinal"] = ordinal
                 transcript.append({"kind": "turnOutcome", "ordinal": ordinal, "child": child_id, "status": status})
 
     if parent_thread_id is None or not children:
@@ -1789,6 +1827,20 @@ def live_delegation(output: Path, timeout_seconds: float) -> bool:
             if has_unexpected_delegation_activity(message):
                 raise LiveProbeFailure("unexpectedToolActivity")
             transcript.append({"direction": "serverToClient", "message": message})
+        observed_child_threads = sorted({
+            params.get("threadId")
+            for entry in transcript
+            if entry.get("direction") == "serverToClient"
+            and isinstance(entry.get("message"), dict)
+            and entry["message"].get("method") == "turn/completed"
+            and isinstance((params := entry["message"].get("params")), dict)
+            and isinstance(params.get("threadId"), str)
+            and params.get("threadId") != thread_id
+        })
+        for index, child_thread_id in enumerate(observed_child_threads, start=1):
+            read_request = {"id": f"thread-read-{index}", "method": "thread/read", "params": {"threadId": child_thread_id}}
+            send_live_message(process, transcript, read_request, validator, requests)
+            wait_delegation_response(events, transcript, read_request["id"], deadline, validator, requests)
         metadata["surfaceClassification"] = validate_capture_contract({"runMetadata": metadata, "messages": transcript}, validator)
         artifact, success = normalize_delegation_capture({"runMetadata": metadata, "messages": transcript})
         if not success:

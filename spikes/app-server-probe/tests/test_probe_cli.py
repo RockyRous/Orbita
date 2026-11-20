@@ -766,6 +766,20 @@ class ProbeCliTests(unittest.TestCase):
         self.assertFalse(success)
         self.assertEqual(artifact["outcome"], {"failure": "missingDirectParentEdge", "success": False})
 
+    def test_normalize_delegation_accepts_direct_thread_read_lineage_before_count_gate(self) -> None:
+        capture = json.loads(SUCCESSFUL_TURN.read_text(encoding="utf-8"))
+        capture["messages"].extend([
+            {"direction": "clientToServer", "message": {"id": "read-child", "method": "thread/read", "params": {"threadId": "child-source"}}},
+            {"direction": "serverToClient", "message": {"id": "read-child", "result": {"thread": {"id": "child-source", "parentThreadId": "019a-thread-source"}}}},
+            {"direction": "serverToClient", "message": {"method": "item/completed", "params": {"item": {"type": "subAgentActivity", "agentThreadId": "child-source", "kind": "completed"}}}},
+            {"direction": "serverToClient", "message": {"method": "turn/completed", "params": {"threadId": "child-source", "turn": {"id": "child-turn", "status": "completed"}}}},
+        ])
+
+        artifact, success = PROBE_MODULE.normalize_delegation_capture(capture)
+
+        self.assertFalse(success)
+        self.assertEqual(artifact["outcome"], {"failure": "insufficientDistinctChildIdentities", "success": False})
+
     def test_delegation_failure_artifact_keeps_only_aliased_correlation_evidence(self) -> None:
         metadata = {
             "featureProfile": {"overrides": ["--enable multi_agent_v2"], "sha256": "feature-digest"},
