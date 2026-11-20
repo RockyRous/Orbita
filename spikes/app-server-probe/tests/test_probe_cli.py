@@ -446,20 +446,27 @@ class ProbeCliTests(unittest.TestCase):
         self.assertTrue(arguments.confirm_live_delegation)
 
     def test_delegation_activity_gate_allows_only_spawn_and_subagent_activity(self) -> None:
+        response = {"id": "turn-start-1", "result": {"turn": {"id": "turn-root"}}}
         accepted = {
             "method": "item/completed",
             "params": {"item": {"type": "collabAgentToolCall", "tool": "spawnAgent"}},
         }
-        unexpected_collaboration = {
+        wait = {
             "method": "item/completed",
             "params": {"item": {"type": "collabAgentToolCall", "tool": "wait"}},
+        }
+        unexpected_collaboration = {
+            "method": "item/completed",
+            "params": {"item": {"type": "collabAgentToolCall", "tool": "sendInput"}},
         }
         command = {
             "method": "item/completed",
             "params": {"item": {"type": "commandExecution"}},
         }
 
+        self.assertFalse(PROBE_MODULE.has_unexpected_delegation_activity(response))
         self.assertFalse(PROBE_MODULE.has_unexpected_delegation_activity(accepted))
+        self.assertFalse(PROBE_MODULE.has_unexpected_delegation_activity(wait))
         self.assertTrue(PROBE_MODULE.has_unexpected_delegation_activity(unexpected_collaboration))
         self.assertTrue(PROBE_MODULE.has_unexpected_delegation_activity(command))
 

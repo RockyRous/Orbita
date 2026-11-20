@@ -1451,14 +1451,14 @@ def has_disallowed_activity(message: dict[str, object]) -> bool:
 def has_unexpected_delegation_activity(message: dict[str, object]) -> bool:
     """Allow normal messages plus only the two collaboration evidence item kinds."""
     if "id" in message:
-        return True
+        return False
     if message.get("method") not in {"item/started", "item/completed"}:
         return False
     params = message.get("params")
     item = params.get("item") if isinstance(params, dict) else None
     item_type = item.get("type") if isinstance(item, dict) else None
     if item_type == "collabAgentToolCall":
-        return item.get("tool") != "spawnAgent"
+        return item.get("tool") not in {"spawnAgent", "wait"}
     if item_type == "subAgentActivity":
         return False
     return has_disallowed_activity(message)
