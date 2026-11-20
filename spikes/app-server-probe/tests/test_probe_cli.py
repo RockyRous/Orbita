@@ -1,6 +1,7 @@
 import json
 import importlib.util
 import os
+import time
 import subprocess
 import sys
 import tempfile
@@ -12,11 +13,17 @@ PROBE_ROOT = Path(__file__).resolve().parents[1]
 PROBE = PROBE_ROOT / "probe.py"
 SUCCESSFUL_TURN = PROBE_ROOT / "tests" / "fixtures" / "successful-turn-transcript.json"
 EQUIVALENT_TURN = PROBE_ROOT / "tests" / "fixtures" / "equivalent-turn-transcript.json"
+ISSUE3_EVENTS = PROBE_ROOT / "tests" / "fixtures" / "issue3-events.json"
 
 PROBE_SPEC = importlib.util.spec_from_file_location("orbita_m0_probe", PROBE)
 assert PROBE_SPEC is not None and PROBE_SPEC.loader is not None
 PROBE_MODULE = importlib.util.module_from_spec(PROBE_SPEC)
 PROBE_SPEC.loader.exec_module(PROBE_MODULE)
+
+
+class _PassthroughValidator:
+    def validate_server(self, message: dict[str, object], requests: dict[object, str]) -> None:
+        return None
 
 
 def run_normalize(capture: dict[str, object], temp_dir: str) -> tuple[subprocess.CompletedProcess[str], dict[str, object], str]:
@@ -35,6 +42,64 @@ def run_normalize(capture: dict[str, object], temp_dir: str) -> tuple[subprocess
 
 
 class ProbeCliTests(unittest.TestCase):
+    def test_follow_up_and_interrupt_normalize_from_same_root_thread(self) -> None:
+        capture = json.loads(SUCCESSFUL_TURN.read_text(encoding="utf-8"))
+        issue3 = json.loads(ISSUE3_EVENTS.read_text(encoding="utf-8"))
+        capture["messages"].extend(issue3["followUp"])
+        capture["messages"].extend(issue3["interrupt"])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "issue3.json"
+            output = Path(temp_dir) / "normalized.json"
+            input_path.write_text(json.dumps(capture), encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, str(PROBE), "normalize-controls", "--input", str(input_path), "--output", str(output)],
+                cwd=PROBE_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            result = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            result["outcome"],
+            {
+                "errorObserved": True,
+                "followUpFinalText": "ORBITA_M0_FOLLOWUP_OK",
+                "followUpObserved": True,
+                "interruptResponseObserved": True,
+                "interruptedTerminalObserved": True,
+                "lateEventObserved": True,
+                "sameRootThread": True,
+                "success": True,
+            },
+        )
+        self.assertEqual(result["threadId"], "<THREAD_1>")
+        self.assertEqual(result["turnIds"], ["<TURN_1>", "<TURN_2>", "<TURN_3>"])
+
+    def test_interrupt_cannot_succeed_from_response_without_interrupted_terminal(self) -> None:
+        capture = json.loads(SUCCESSFUL_TURN.read_text(encoding="utf-8"))
+        issue3 = json.loads(ISSUE3_EVENTS.read_text(encoding="utf-8"))
+        capture["messages"].extend(issue3["followUp"])
+        capture["messages"].extend(
+            entry for entry in issue3["interrupt"] if entry["message"].get("method") != "turn/completed"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "issue3-missing-terminal.json"
+            output = Path(temp_dir) / "failure.json"
+            input_path.write_text(json.dumps(capture), encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, str(PROBE), "normalize-controls", "--input", str(input_path), "--output", str(output)],
+                cwd=PROBE_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertEqual(
+                json.loads(output.read_text(encoding="utf-8"))["outcome"],
+                {"failure": "missingInterruptedTerminal", "success": False},
+            )
     def test_child_environment_omits_inherited_credentials(self) -> None:
         parent = dict(os.environ)
         parent["ORBITA_SEEDED_SECRET"] = "seeded-secret-must-not-cross-boundary"
@@ -326,6 +391,59 @@ class ProbeCliTests(unittest.TestCase):
             self.assertNotEqual(completed.returncode, 0)
             self.assertIn("--confirm-live-model", completed.stderr)
             self.assertFalse(output.exists())
+
+    def test_live_controls_requires_explicit_model_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "must-not-exist.json"
+            capture = Path(temp_dir) / "capture-must-not-exist.json"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(PROBE),
+                    "live-controls",
+                    "--output",
+                    str(output),
+                    "--capture-output",
+                    str(capture),
+                ],
+                cwd=PROBE_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("--confirm-live-model", completed.stderr)
+            self.assertFalse(output.exists())
+            self.assertFalse(capture.exists())
+
+    def test_control_event_wait_ignores_other_turn_and_times_out_bounded(self) -> None:
+        events: "queue.Queue[object]" = PROBE_MODULE.queue.Queue()
+        events.put(
+            {
+                "method": "turn/started",
+                "params": {
+                    "threadId": "thread-other",
+                    "turn": {"id": "turn-other", "status": "inProgress", "items": []},
+                },
+            }
+        )
+        transcript: list[dict[str, object]] = []
+
+        with self.assertRaises(PROBE_MODULE.LiveProbeFailure) as error:
+            PROBE_MODULE.wait_for_turn_started(
+                events,
+                transcript,
+                time.monotonic() + 0.01,
+                _PassthroughValidator(),
+                {},
+                "thread-target",
+                "turn-target",
+            )
+
+        self.assertEqual(error.exception.category, "deadlineExceeded")
+        self.assertEqual(len(transcript), 1)
+        self.assertEqual(transcript[0]["message"]["params"]["threadId"], "thread-other")
 
     def test_normalize_turn_rejects_structurally_invalid_contract_message(self) -> None:
         capture = json.loads(SUCCESSFUL_TURN.read_text(encoding="utf-8"))

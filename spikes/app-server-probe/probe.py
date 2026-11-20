@@ -25,6 +25,9 @@ PINNED_VERSION = "codex-cli 0.170.0"
 SURFACES = ("initialize", "initialized", "thread/start", "turn/start")
 LIVE_PROMPT = "Reply with exactly: ORBITA_M0_OK. Do not use tools."
 LIVE_SENTINEL = "ORBITA_M0_OK"
+FOLLOW_UP_PROMPT = "Reply with exactly: ORBITA_M0_FOLLOWUP_OK. Do not use tools."
+FOLLOW_UP_SENTINEL = "ORBITA_M0_FOLLOWUP_OK"
+INTERRUPT_PROMPT = "Write integers from 1 through 10000, one per line. Do not use tools."
 CHILD_ENV_ALLOWLIST = {
     "APPDATA", "CODEX_HOME", "COMSPEC", "HOMEDRIVE", "HOMEPATH",
     "LOCALAPPDATA", "PATH", "PATHEXT", "PROGRAMDATA", "PROGRAMFILES",
@@ -35,6 +38,7 @@ REQUIRED_LIVE_SURFACES = {
     "initialize", "initialized", "thread/start", "turn/start", "turn/started",
     "item/agentMessage/delta", "item/completed", "turn/completed",
 }
+REQUIRED_CONTROL_SURFACES = REQUIRED_LIVE_SURFACES | {"turn/interrupt"}
 
 
 def build_child_environment(parent: dict[str, str]) -> dict[str, str]:
@@ -136,14 +140,14 @@ def canonical_digest(value: object) -> str:
 
 
 def remove_disposable_directory(path: Path) -> None:
-    for attempt in range(20):
+    for attempt in range(50):
         try:
             shutil.rmtree(path)
             return
         except FileNotFoundError:
             return
         except PermissionError:
-            if attempt == 19:
+            if attempt == 49:
                 raise
             time.sleep(0.1)
 
@@ -184,6 +188,7 @@ class GeneratedContractValidator:
             "initialize": load("v1/InitializeResponse.json"),
             "thread/start": load("v2/ThreadStartResponse.json"),
             "turn/start": load("v2/TurnStartResponse.json"),
+            "turn/interrupt": load("v2/TurnInterruptResponse.json"),
         }
         method_schemas = [
             json.loads((schema_dir / name).read_text(encoding="utf-8"))
@@ -804,6 +809,171 @@ def normalize_turn_file(input_path: Path, output: Path) -> bool:
     return success
 
 
+def normalize_controls_capture(capture: dict[str, object]) -> tuple[dict[str, object], bool]:
+    metadata = capture.get("runMetadata")
+    messages = capture.get("messages")
+    if not isinstance(metadata, dict) or not isinstance(messages, list):
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "invalidCapture", "success": False}}, False
+    classification = metadata.get("surfaceClassification")
+    if not isinstance(classification, dict) or not REQUIRED_CONTROL_SURFACES.issubset(classification):
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "missingRequiredControlSurface", "success": False}}, False
+    for entry in messages:
+        if (
+            isinstance(entry, dict)
+            and entry.get("direction") == "serverToClient"
+            and isinstance(entry.get("message"), dict)
+            and has_disallowed_activity(entry["message"])
+        ):
+            return {"fixtureSchemaVersion": 1, "outcome": {"failure": "toolActivityObserved", "success": False}}, False
+
+    request_messages: dict[object, dict[str, object]] = {}
+    response_messages: dict[object, dict[str, object]] = {}
+    for entry in messages:
+        if not isinstance(entry, dict) or not isinstance(entry.get("message"), dict):
+            continue
+        message = entry["message"]
+        if entry.get("direction") == "clientToServer" and "id" in message:
+            request_messages[message["id"]] = message
+        elif entry.get("direction") == "serverToClient" and "id" in message and "result" in message:
+            response_messages[message["id"]] = message
+
+    thread_requests = [message for message in request_messages.values() if message.get("method") == "thread/start"]
+    if len(thread_requests) != 1:
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "missingRootThread", "success": False}}, False
+    thread_response = response_messages.get(thread_requests[0].get("id"))
+    thread_result = thread_response.get("result") if isinstance(thread_response, dict) else None
+    thread = thread_result.get("thread") if isinstance(thread_result, dict) else None
+    thread_id = thread.get("id") if isinstance(thread, dict) else None
+    if not isinstance(thread_id, str) or not thread_id:
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "missingRootThread", "success": False}}, False
+
+    turn_records: dict[str, tuple[dict[str, object], str]] = {}
+    root_turn_id: str | None = None
+    for request_id, request in request_messages.items():
+        if request.get("method") != "turn/start" or not isinstance(request.get("params"), dict):
+            continue
+        params = request["params"]
+        inputs = params.get("input")
+        prompt = inputs[0].get("text") if isinstance(inputs, list) and inputs and isinstance(inputs[0], dict) else None
+        response = response_messages.get(request_id)
+        result = response.get("result") if isinstance(response, dict) else None
+        turn = result.get("turn") if isinstance(result, dict) else None
+        turn_id = turn.get("id") if isinstance(turn, dict) else None
+        if not isinstance(prompt, str) or not isinstance(turn_id, str):
+            continue
+        if params.get("threadId") != thread_id:
+            return {"fixtureSchemaVersion": 1, "outcome": {"failure": "followUpThreadMismatch", "success": False}}, False
+        turn_records[prompt] = (request, turn_id)
+        if prompt == LIVE_PROMPT:
+            root_turn_id = turn_id
+
+    follow = turn_records.get(FOLLOW_UP_PROMPT)
+    interrupted = turn_records.get(INTERRUPT_PROMPT)
+    if root_turn_id is None or follow is None:
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "missingFollowUpTurn", "success": False}}, False
+    if interrupted is None:
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "missingInterruptTurn", "success": False}}, False
+    follow_turn_id = follow[1]
+    interrupted_turn_id = interrupted[1]
+    if len({root_turn_id, follow_turn_id, interrupted_turn_id}) != 3:
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "conflictingTurnIdentity", "success": False}}, False
+
+    follow_terminal = False
+    follow_text = False
+    interrupted_terminal_index: int | None = None
+    error_observed = False
+    late_event_observed = False
+    for index, entry in enumerate(messages):
+        if not isinstance(entry, dict) or entry.get("direction") != "serverToClient" or not isinstance(entry.get("message"), dict):
+            continue
+        message = entry["message"]
+        method = message.get("method")
+        params = message.get("params")
+        if not isinstance(params, dict) or params.get("threadId") != thread_id:
+            continue
+        event_turn_id = params.get("turnId")
+        turn = params.get("turn")
+        if isinstance(turn, dict):
+            event_turn_id = turn.get("id")
+        if method == "turn/completed" and event_turn_id == follow_turn_id and isinstance(turn, dict):
+            follow_terminal = turn.get("status") == "completed"
+        elif method == "item/completed" and event_turn_id == follow_turn_id:
+            item = params.get("item")
+            follow_text = isinstance(item, dict) and item.get("type") == "agentMessage" and item.get("text") == FOLLOW_UP_SENTINEL
+        elif method == "error" and event_turn_id == interrupted_turn_id:
+            error_observed = True
+        elif method == "turn/completed" and event_turn_id == interrupted_turn_id and isinstance(turn, dict):
+            if turn.get("status") == "interrupted":
+                interrupted_terminal_index = index
+
+    interrupt_requests = [
+        (request_id, request)
+        for request_id, request in request_messages.items()
+        if request.get("method") == "turn/interrupt"
+    ]
+    interrupt_response_observed = False
+    if len(interrupt_requests) == 1 and isinstance(interrupt_requests[0][1].get("params"), dict):
+        interrupt_id, interrupt_request = interrupt_requests[0]
+        interrupt_params = interrupt_request["params"]
+        interrupt_response_observed = (
+            interrupt_params.get("threadId") == thread_id
+            and interrupt_params.get("turnId") == interrupted_turn_id
+            and interrupt_id in response_messages
+        )
+    if not follow_terminal or not follow_text:
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "followUpNotCompleted", "success": False}}, False
+    if not interrupt_response_observed:
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "missingInterruptResponse", "success": False}}, False
+    if interrupted_terminal_index is None:
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "missingInterruptedTerminal", "success": False}}, False
+
+    for entry in messages[interrupted_terminal_index + 1 :]:
+        if not isinstance(entry, dict) or not isinstance(entry.get("message"), dict):
+            continue
+        params = entry["message"].get("params")
+        if isinstance(params, dict) and params.get("threadId") == thread_id and params.get("turnId") == interrupted_turn_id:
+            late_event_observed = True
+            break
+
+    outcome = {
+        "errorObserved": error_observed,
+        "followUpFinalText": FOLLOW_UP_SENTINEL,
+        "followUpObserved": True,
+        "interruptResponseObserved": True,
+        "interruptedTerminalObserved": True,
+        "lateEventObserved": late_event_observed,
+        "sameRootThread": True,
+        "success": True,
+    }
+    return {
+        "fixtureSchemaVersion": 1,
+        "outcome": outcome,
+        "surfaceClassification": metadata.get("surfaceClassification", {}),
+        "threadId": "<THREAD_1>",
+        "turnIds": ["<TURN_1>", "<TURN_2>", "<TURN_3>"],
+    }, True
+
+
+def normalize_controls_file(input_path: Path, output: Path) -> bool:
+    capture = json.loads(input_path.read_text(encoding="utf-8"))
+    try:
+        with tempfile.TemporaryDirectory(prefix="orbita-m0-controls-") as temp_dir:
+            schema_dir = Path(temp_dir) / "stable"
+            generated = generate_contract(schema_dir, experimental=False)
+            metadata = capture.get("runMetadata") if isinstance(capture, dict) else None
+            contract = metadata.get("contract") if isinstance(metadata, dict) else None
+            if not isinstance(contract, dict) or contract.get("stableManifestSha256") != generated["manifestSha256"]:
+                raise ContractMessageError("contractDigestMismatch")
+            validator = GeneratedContractValidator(schema_dir)
+            metadata["surfaceClassification"] = validate_capture_contract(capture, validator)
+        artifact, success = normalize_controls_capture(capture)
+    except ContractMessageError as error:
+        artifact = {"fixtureSchemaVersion": 1, "outcome": {"failure": error.category, "success": False}}
+        success = False
+    write_json(output, artifact)
+    return success
+
+
 class LiveProbeFailure(Exception):
     def __init__(self, category: str) -> None:
         super().__init__(category)
@@ -884,6 +1054,130 @@ def wait_live_response(
         if "error" in message or not isinstance(message.get("result"), dict):
             raise LiveProbeFailure("requestFailed")
         return message
+
+
+def receive_safe_live_message(
+    events: queue.Queue[object],
+    transcript: list[dict[str, object]],
+    deadline: float,
+    validator: GeneratedContractValidator,
+    requests: dict[object, str],
+) -> dict[str, object]:
+    message = receive_live_message(events, deadline)
+    validator.validate_server(message, requests)
+    if has_disallowed_activity(message):
+        raise LiveProbeFailure("toolActivityObserved")
+    transcript.append({"direction": "serverToClient", "message": message})
+    return message
+
+
+def event_turn_id(message: dict[str, object]) -> tuple[str | None, str | None]:
+    params = message.get("params")
+    if not isinstance(params, dict):
+        return None, None
+    thread_id = params.get("threadId")
+    turn_id = params.get("turnId")
+    turn = params.get("turn")
+    if isinstance(turn, dict):
+        turn_id = turn.get("id")
+    return thread_id if isinstance(thread_id, str) else None, turn_id if isinstance(turn_id, str) else None
+
+
+def matching_turn_started(message: dict[str, object], thread_id: str, turn_id: str) -> bool:
+    event_thread_id, event_turn_id_value = event_turn_id(message)
+    return (
+        message.get("method") == "turn/started"
+        and event_thread_id == thread_id
+        and event_turn_id_value == turn_id
+    )
+
+
+def wait_for_turn_started(
+    events: queue.Queue[object],
+    transcript: list[dict[str, object]],
+    deadline: float,
+    validator: GeneratedContractValidator,
+    requests: dict[object, str],
+    thread_id: str,
+    turn_id: str,
+) -> None:
+    for entry in transcript:
+        message = entry.get("message") if isinstance(entry, dict) else None
+        if entry.get("direction") == "serverToClient" and isinstance(message, dict) and matching_turn_started(message, thread_id, turn_id):
+            return
+    while True:
+        message = receive_safe_live_message(events, transcript, deadline, validator, requests)
+        if matching_turn_started(message, thread_id, turn_id):
+            return
+
+
+def turn_completion_state(
+    transcript: list[dict[str, object]],
+    thread_id: str,
+    turn_id: str,
+) -> tuple[str | None, str | None]:
+    final_text: str | None = None
+    terminal_status: str | None = None
+    for entry in transcript:
+        if not isinstance(entry, dict) or entry.get("direction") != "serverToClient":
+            continue
+        message = entry.get("message")
+        if not isinstance(message, dict):
+            continue
+        event_thread_id, event_turn_id_value = event_turn_id(message)
+        if event_thread_id != thread_id or event_turn_id_value != turn_id:
+            continue
+        params = message.get("params")
+        if message.get("method") == "item/completed" and isinstance(params, dict):
+            item = params.get("item")
+            if isinstance(item, dict) and item.get("type") == "agentMessage" and isinstance(item.get("text"), str):
+                final_text = item["text"].strip()
+        elif message.get("method") == "turn/completed" and isinstance(params, dict):
+            turn = params.get("turn")
+            if isinstance(turn, dict) and isinstance(turn.get("status"), str):
+                terminal_status = turn["status"]
+    return final_text, terminal_status
+
+
+def wait_for_turn_completion(
+    events: queue.Queue[object],
+    transcript: list[dict[str, object]],
+    deadline: float,
+    validator: GeneratedContractValidator,
+    requests: dict[object, str],
+    thread_id: str,
+    turn_id: str,
+    expected_status: str,
+    expected_text: str | None = None,
+) -> None:
+    while True:
+        final_text, terminal_status = turn_completion_state(transcript, thread_id, turn_id)
+        if terminal_status is not None:
+            if terminal_status != expected_status:
+                raise LiveProbeFailure("unexpectedTerminalStatus")
+            if expected_text is not None and final_text != expected_text:
+                raise LiveProbeFailure("unexpectedFinalAgentText")
+            return
+        receive_safe_live_message(events, transcript, deadline, validator, requests)
+
+
+def observe_late_events(
+    events: queue.Queue[object],
+    transcript: list[dict[str, object]],
+    duration_seconds: float,
+    validator: GeneratedContractValidator,
+    requests: dict[object, str],
+) -> None:
+    if duration_seconds <= 0:
+        raise LiveProbeFailure("invalidLateObservationDeadline")
+    deadline = time.monotonic() + duration_seconds
+    while True:
+        try:
+            receive_safe_live_message(events, transcript, deadline, validator, requests)
+        except LiveProbeFailure as error:
+            if error.category == "deadlineExceeded":
+                return
+            raise
 
 
 def matching_terminal(message: dict[str, object], thread_id: str, turn_id: str) -> bool:
@@ -1107,6 +1401,174 @@ def live_turn(output: Path, timeout_seconds: float) -> bool:
     return success
 
 
+def sanitize_controls_capture(
+    metadata: dict[str, object],
+    transcript: list[dict[str, object]],
+    project: Path,
+    thread_id: str,
+    turn_ids: list[str],
+) -> dict[str, object]:
+    """Keep schema-valid evidence while removing local paths, identities, and unreviewed text."""
+    aliases = {thread_id: "<THREAD_1>"}
+    aliases.update({turn_id: f"<TURN_{index}>" for index, turn_id in enumerate(turn_ids, start=1)})
+    known_text = {LIVE_PROMPT, LIVE_SENTINEL, FOLLOW_UP_PROMPT, FOLLOW_UP_SENTINEL, INTERRUPT_PROMPT}
+    windows_path = re.compile(r"[A-Za-z]:\\[^\r\n]*")
+
+    def sanitize(value: object, key: str | None = None) -> object:
+        if isinstance(value, dict):
+            return {name: sanitize(child, name) for name, child in value.items()}
+        if isinstance(value, list):
+            return [sanitize(child, key) for child in value]
+        if not isinstance(value, str):
+            return value
+        if value in aliases:
+            return aliases[value]
+        if key in {"cwd", "codexHome"}:
+            return "<DISPOSABLE_PROJECT>" if value == str(project.resolve()) else "<redacted-absolute-path>"
+        if key == "userAgent":
+            return "<SERVER_USER_AGENT>"
+        if key in {"delta", "text", "message"} and value not in known_text:
+            return "<REDACTED_AGENT_TEXT>"
+        return windows_path.sub("<redacted-absolute-path>", value)
+
+    return {
+        "messages": sanitize(transcript),
+        "runMetadata": sanitize(metadata),
+    }
+
+
+def live_controls(capture_output: Path, output: Path, timeout_seconds: float, late_observation_seconds: float) -> bool:
+    if timeout_seconds <= 0:
+        write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": "invalidDeadline", "success": False}})
+        return False
+    if late_observation_seconds <= 0 or late_observation_seconds >= timeout_seconds:
+        write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": "invalidLateObservationDeadline", "success": False}})
+        return False
+    executable = Path(codex_executable())
+    version = run_checked([str(executable), "--version"]).stdout.strip()
+    if version != PINNED_VERSION:
+        write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": "runtimeVersionMismatch", "success": False}})
+        return False
+    try:
+        metadata = pinned_live_metadata(executable, version)
+    except LiveProbeFailure as error:
+        write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": error.category, "success": False}})
+        return False
+
+    transcript: list[dict[str, object]] = []
+    failure: str | None = None
+    thread_id: str | None = None
+    turn_ids: list[str] = []
+    temp_root = Path(tempfile.mkdtemp(prefix="orbita-m0-live-controls-"))
+    project = temp_root / "project"
+    project.mkdir()
+    schema_dir = temp_root / "stable-schema"
+    generated_contract = generate_contract(schema_dir, experimental=False)
+    if generated_contract["manifestSha256"] != metadata["contract"]["stableManifestSha256"]:
+        write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": "contractDigestMismatch", "success": False}})
+        remove_disposable_directory(temp_root)
+        return False
+    validator = GeneratedContractValidator(schema_dir)
+    request_methods: dict[object, str] = {}
+    subprocess.run(["git", "init", "--quiet"], cwd=project, text=True, capture_output=True, check=True)
+    process = subprocess.Popen(
+        [str(executable), "app-server", "--listen", "stdio://"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        env=build_child_environment(dict(os.environ)),
+    )
+    events: queue.Queue[object] = queue.Queue()
+    assert process.stdout is not None
+    assert process.stderr is not None
+    threading.Thread(target=pump_protocol_lines, args=(process.stdout, events), daemon=True).start()
+    threading.Thread(target=drain_stream, args=(process.stderr,), daemon=True).start()
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        send_live_message(process, transcript, {
+            "id": "initialize-1", "method": "initialize", "params": {
+                "capabilities": {"experimentalApi": False},
+                "clientInfo": {"name": "orbita-m0-probe", "title": "Orbita M0 probe", "version": "0.0.0-throwaway"},
+            },
+        }, validator, request_methods)
+        wait_live_response(events, transcript, "initialize-1", deadline, validator, request_methods)
+        send_live_message(process, transcript, {"method": "initialized"}, validator, request_methods)
+        send_live_message(process, transcript, {
+            "id": "thread-start-1", "method": "thread/start", "params": {
+                "approvalPolicy": "never", "cwd": str(project.resolve()), "ephemeral": True, "sandbox": "read-only",
+            },
+        }, validator, request_methods)
+        thread_response = wait_live_response(events, transcript, "thread-start-1", deadline, validator, request_methods)
+        thread = thread_response["result"].get("thread")
+        thread_id = thread.get("id") if isinstance(thread, dict) else None
+        if not isinstance(thread_id, str) or not thread_id:
+            raise LiveProbeFailure("missingThreadIdentity")
+
+        def start_turn(request_id: str, prompt: str) -> str:
+            send_live_message(process, transcript, {
+                "id": request_id, "method": "turn/start", "params": {
+                    "input": [{"text": prompt, "text_elements": [], "type": "text"}], "threadId": thread_id,
+                },
+            }, validator, request_methods)
+            response = wait_live_response(events, transcript, request_id, deadline, validator, request_methods)
+            turn = response["result"].get("turn")
+            turn_id = turn.get("id") if isinstance(turn, dict) else None
+            if not isinstance(turn_id, str) or not turn_id:
+                raise LiveProbeFailure("missingTurnIdentity")
+            turn_ids.append(turn_id)
+            return turn_id
+
+        root_turn_id = start_turn("turn-start-1", LIVE_PROMPT)
+        wait_for_turn_completion(events, transcript, deadline, validator, request_methods, thread_id, root_turn_id, "completed", LIVE_SENTINEL)
+        follow_turn_id = start_turn("turn-start-2", FOLLOW_UP_PROMPT)
+        wait_for_turn_completion(events, transcript, deadline, validator, request_methods, thread_id, follow_turn_id, "completed", FOLLOW_UP_SENTINEL)
+        interrupted_turn_id = start_turn("turn-start-3", INTERRUPT_PROMPT)
+        wait_for_turn_started(events, transcript, deadline, validator, request_methods, thread_id, interrupted_turn_id)
+        send_live_message(process, transcript, {
+            "id": "turn-interrupt-1", "method": "turn/interrupt", "params": {"threadId": thread_id, "turnId": interrupted_turn_id},
+        }, validator, request_methods)
+        wait_live_response(events, transcript, "turn-interrupt-1", deadline, validator, request_methods)
+        wait_for_turn_completion(events, transcript, deadline, validator, request_methods, thread_id, interrupted_turn_id, "interrupted")
+        observe_late_events(events, transcript, late_observation_seconds, validator, request_methods)
+    except (LiveProbeFailure, ContractMessageError) as error:
+        failure = error.category
+    finally:
+        if process.stdin is not None:
+            process.stdin.close()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
+    if failure is None and thread_id is not None and len(turn_ids) == 3:
+        try:
+            metadata["surfaceClassification"] = validate_capture_contract(
+                {"runMetadata": metadata, "messages": transcript}, validator
+            )
+            sanitized_capture = sanitize_controls_capture(metadata, transcript, project, thread_id, turn_ids)
+            write_json(capture_output, sanitized_capture)
+            success = normalize_controls_file(capture_output, output)
+        except (ContractMessageError, ValueError) as error:
+            failure = error.category if isinstance(error, ContractMessageError) else "unsafeCapture"
+            success = False
+    else:
+        success = False
+        if failure is None:
+            failure = "missingControlEvidence"
+    remove_disposable_directory(temp_root)
+    if failure is not None:
+        write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": failure, "success": False}, "probeInputRevision": "live-controls-v1", "runtime": metadata["runtime"]})
+        return False
+    return success
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1117,10 +1579,19 @@ def build_parser() -> argparse.ArgumentParser:
     normalize_parser = subparsers.add_parser("normalize-turn")
     normalize_parser.add_argument("--input", required=True, type=Path)
     normalize_parser.add_argument("--output", required=True, type=Path)
+    controls_parser = subparsers.add_parser("normalize-controls")
+    controls_parser.add_argument("--input", required=True, type=Path)
+    controls_parser.add_argument("--output", required=True, type=Path)
     live_parser = subparsers.add_parser("live-turn")
     live_parser.add_argument("--confirm-live-model", action="store_true", required=True)
     live_parser.add_argument("--output", required=True, type=Path)
     live_parser.add_argument("--timeout-seconds", type=float, default=120.0)
+    controls_live_parser = subparsers.add_parser("live-controls")
+    controls_live_parser.add_argument("--confirm-live-model", action="store_true", required=True)
+    controls_live_parser.add_argument("--capture-output", required=True, type=Path)
+    controls_live_parser.add_argument("--output", required=True, type=Path)
+    controls_live_parser.add_argument("--timeout-seconds", type=float, default=120.0)
+    controls_live_parser.add_argument("--late-observation-seconds", type=float, default=2.0)
     return parser
 
 
@@ -1132,8 +1603,14 @@ def main() -> int:
         initialize(arguments.output)
     elif arguments.command == "normalize-turn":
         return 0 if normalize_turn_file(arguments.input, arguments.output) else 1
+    elif arguments.command == "normalize-controls":
+        return 0 if normalize_controls_file(arguments.input, arguments.output) else 1
     elif arguments.command == "live-turn":
         return 0 if live_turn(arguments.output, arguments.timeout_seconds) else 1
+    elif arguments.command == "live-controls":
+        return 0 if live_controls(
+            arguments.capture_output, arguments.output, arguments.timeout_seconds, arguments.late_observation_seconds
+        ) else 1
     return 0
 
 

@@ -1,0 +1,20 @@
+{
+  "followUp": [
+    {"direction":"clientToServer","message":{"id":"follow-turn","method":"turn/start","params":{"threadId":"019a-thread-source","input":[{"type":"text","text":"Reply with exactly: ORBITA_M0_FOLLOWUP_OK. Do not use tools.","text_elements":[]}]}}},
+    {"direction":"serverToClient","message":{"id":"follow-turn","result":{"turn":{"id":"019a-follow-turn","items":[],"status":"inProgress"}}}},
+    {"direction":"serverToClient","message":{"method":"turn/started","params":{"threadId":"019a-thread-source","turn":{"id":"019a-follow-turn","items":[],"status":"inProgress"}}}},
+    {"direction":"serverToClient","message":{"method":"item/agentMessage/delta","params":{"delta":"ORBITA_M0_FOLLOWUP_OK","itemId":"019a-follow-item","threadId":"019a-thread-source","turnId":"019a-follow-turn"}}},
+    {"direction":"serverToClient","message":{"method":"item/completed","params":{"completedAtMs":223456,"item":{"id":"019a-follow-item","text":"ORBITA_M0_FOLLOWUP_OK","type":"agentMessage"},"threadId":"019a-thread-source","turnId":"019a-follow-turn"}}},
+    {"direction":"serverToClient","message":{"method":"turn/completed","params":{"threadId":"019a-thread-source","turn":{"id":"019a-follow-turn","items":[],"status":"completed"}}}}
+  ],
+  "interrupt": [
+    {"direction":"clientToServer","message":{"id":"long-turn","method":"turn/start","params":{"threadId":"019a-thread-source","input":[{"type":"text","text":"Write integers from 1 through 10000, one per line. Do not use tools.","text_elements":[]}]}}},
+    {"direction":"serverToClient","message":{"id":"long-turn","result":{"turn":{"id":"019a-long-turn","items":[],"status":"inProgress"}}}},
+    {"direction":"serverToClient","message":{"method":"turn/started","params":{"threadId":"019a-thread-source","turn":{"id":"019a-long-turn","items":[],"status":"inProgress"}}}},
+    {"direction":"clientToServer","message":{"id":"interrupt-long-turn","method":"turn/interrupt","params":{"threadId":"019a-thread-source","turnId":"019a-long-turn"}}},
+    {"direction":"serverToClient","message":{"id":"interrupt-long-turn","result":{}}},
+    {"direction":"serverToClient","message":{"method":"error","params":{"error":{"message":"synthetic interrupted diagnostic"},"threadId":"019a-thread-source","turnId":"019a-long-turn","willRetry":false}}},
+    {"direction":"serverToClient","message":{"method":"turn/completed","params":{"threadId":"019a-thread-source","turn":{"id":"019a-long-turn","items":[],"status":"interrupted"}}}},
+    {"direction":"serverToClient","message":{"method":"item/agentMessage/delta","params":{"delta":"late synthetic fragment","itemId":"019a-late-item","threadId":"019a-thread-source","turnId":"019a-long-turn"}}}
+  ]
+}
