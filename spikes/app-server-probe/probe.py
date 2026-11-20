@@ -29,6 +29,13 @@ LIVE_SENTINEL = "ORBITA_M0_OK"
 FOLLOW_UP_PROMPT = "Reply with exactly: ORBITA_M0_FOLLOWUP_OK. Do not use tools."
 FOLLOW_UP_SENTINEL = "ORBITA_M0_FOLLOWUP_OK"
 INTERRUPT_PROMPT = "Write integers from 1 through 10000, one per line. Do not use tools."
+DELEGATION_PROMPT = """Use the available collaboration spawn-agent tool to create exactly two independent child agents before waiting for either one.
+
+Child alpha: read only alpha.txt in the current project and return exactly ORBITA_CHILD_ALPHA. Do not modify files and do not use network access.
+Child beta: read only beta.txt in the current project and return exactly ORBITA_CHILD_BETA. Do not modify files and do not use network access.
+
+Do not read either file in the root execution. Wait for both children. Then return a two-key JSON object containing their exact results. Do not spawn more agents and do not modify files."""
+DELEGATION_FEATURE_OVERRIDES = ("multi_agent_v2", "multi_agent")
 CHILD_ENV_ALLOWLIST = {
     "APPDATA", "CODEX_HOME", "COMSPEC", "HOMEDRIVE", "HOMEPATH",
     "LOCALAPPDATA", "PATH", "PATHEXT", "PROGRAMDATA", "PROGRAMFILES",
@@ -1260,6 +1267,28 @@ def receive_safe_live_message(
     return message
 
 
+def wait_delegation_response(
+    events: queue.Queue[object],
+    transcript: list[dict[str, object]],
+    request_id: str,
+    deadline: float,
+    validator: GeneratedContractValidator,
+    requests: dict[object, str],
+) -> dict[str, object]:
+    """Wait without losing a raced spawn/activity event from the transcript."""
+    while True:
+        message = receive_live_message(events, deadline)
+        validator.validate_server(message, requests)
+        if has_unexpected_delegation_activity(message):
+            raise LiveProbeFailure("unexpectedToolActivity")
+        transcript.append({"direction": "serverToClient", "message": message})
+        if message.get("id") != request_id:
+            continue
+        if "error" in message or not isinstance(message.get("result"), dict):
+            raise LiveProbeFailure("requestFailed")
+        return message
+
+
 def event_turn_id(message: dict[str, object]) -> tuple[str | None, str | None]:
     params = message.get("params")
     if not isinstance(params, dict):
@@ -1417,6 +1446,22 @@ def has_disallowed_activity(message: dict[str, object]) -> bool:
             "userMessage",
         }
     return False
+
+
+def has_unexpected_delegation_activity(message: dict[str, object]) -> bool:
+    """Allow normal messages plus only the two collaboration evidence item kinds."""
+    if "id" in message:
+        return True
+    if message.get("method") not in {"item/started", "item/completed"}:
+        return False
+    params = message.get("params")
+    item = params.get("item") if isinstance(params, dict) else None
+    item_type = item.get("type") if isinstance(item, dict) else None
+    if item_type == "collabAgentToolCall":
+        return item.get("tool") != "spawnAgent"
+    if item_type == "subAgentActivity":
+        return False
+    return has_disallowed_activity(message)
 
 
 def pinned_live_metadata(executable: Path, version: str) -> dict[str, object]:
@@ -1588,6 +1633,123 @@ def live_turn(output: Path, timeout_seconds: float) -> bool:
         print(f"repeatabilitySha256={artifact['repeatabilityDigest']}")
         print(f"fixture={output.resolve()}")
     return success
+
+
+def live_delegation(output: Path, timeout_seconds: float) -> bool:
+    """Explicitly opt-in, least-privilege candidate probe for issue #4.
+
+    This is intentionally not called by any test. It persists only the sanitized
+    delegation projection after the complete capture validates against the pinned
+    stable contract.
+    """
+    if timeout_seconds <= 0:
+        write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": "invalidDeadline", "success": False}})
+        return False
+    executable = Path(codex_executable())
+    version = run_checked([str(executable), "--version"]).stdout.strip()
+    if version != PINNED_VERSION:
+        write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": "runtimeVersionMismatch", "success": False}})
+        return False
+    try:
+        metadata = pinned_live_metadata(executable, version)
+    except LiveProbeFailure as error:
+        write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": error.category, "success": False}})
+        return False
+    overrides = ["--enable multi_agent_v2", "--disable multi_agent", "--strict-config"]
+    metadata["featureProfile"] = {"overrides": overrides, "sha256": canonical_digest(overrides)}
+    transcript: list[dict[str, object]] = []
+    failure: str | None = None
+    temp_root = Path(tempfile.mkdtemp(prefix="orbita-m0-live-delegation-"))
+    project = temp_root / "project"
+    probe_home = temp_root / "codex-home"
+    schema_dir = temp_root / "stable-schema"
+    process: subprocess.Popen[str] | None = None
+    try:
+        project.mkdir()
+        probe_home.mkdir()
+        (project / "alpha.txt").write_text("ORBITA_CHILD_ALPHA\n", encoding="utf-8")
+        (project / "beta.txt").write_text("ORBITA_CHILD_BETA\n", encoding="utf-8")
+        subprocess.run(["git", "init", "--quiet"], cwd=project, text=True, capture_output=True, check=True)
+        generated = generate_contract(schema_dir, experimental=False)
+        if generated["manifestSha256"] != metadata["contract"]["stableManifestSha256"]:
+            raise LiveProbeFailure("contractDigestMismatch")
+        validator = GeneratedContractValidator(schema_dir)
+        environment = build_child_environment(dict(os.environ))
+        environment["CODEX_HOME"] = str(probe_home)
+        process = subprocess.Popen(
+            [str(executable), "app-server", "--listen", "stdio://", "--enable", "multi_agent_v2", "--disable", "multi_agent", "--strict-config"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", env=environment,
+        )
+        events: queue.Queue[object] = queue.Queue()
+        assert process.stdout is not None and process.stderr is not None
+        threading.Thread(target=pump_protocol_lines, args=(process.stdout, events), daemon=True).start()
+        threading.Thread(target=drain_stream, args=(process.stderr,), daemon=True).start()
+        requests: dict[object, str] = {}
+        deadline = time.monotonic() + timeout_seconds
+        initialize_request = {
+            "id": "initialize-1", "method": "initialize",
+            "params": {"capabilities": {"experimentalApi": False}, "clientInfo": {"name": "orbita-m0-probe", "title": "Orbita M0 delegation probe", "version": "0.0.0-throwaway"}},
+        }
+        send_live_message(process, transcript, initialize_request, validator, requests)
+        wait_delegation_response(events, transcript, "initialize-1", deadline, validator, requests)
+        send_live_message(process, transcript, {"method": "initialized"}, validator, requests)
+        thread_request = {
+            "id": "thread-start-1", "method": "thread/start",
+            "params": {"approvalPolicy": "never", "cwd": str(project.resolve()), "ephemeral": True, "sandbox": "read-only"},
+        }
+        send_live_message(process, transcript, thread_request, validator, requests)
+        thread_response = wait_delegation_response(events, transcript, "thread-start-1", deadline, validator, requests)
+        thread = thread_response["result"].get("thread")
+        thread_id = thread.get("id") if isinstance(thread, dict) else None
+        if not isinstance(thread_id, str) or not thread_id:
+            raise LiveProbeFailure("missingThreadIdentity")
+        turn_request = {
+            "id": "turn-start-1", "method": "turn/start",
+            "params": {"input": [{"text": DELEGATION_PROMPT, "text_elements": [], "type": "text"}], "threadId": thread_id},
+        }
+        send_live_message(process, transcript, turn_request, validator, requests)
+        turn_response = wait_delegation_response(events, transcript, "turn-start-1", deadline, validator, requests)
+        turn = turn_response["result"].get("turn")
+        turn_id = turn.get("id") if isinstance(turn, dict) else None
+        if not isinstance(turn_id, str) or not turn_id:
+            raise LiveProbeFailure("missingTurnIdentity")
+        while not any(
+            isinstance(entry.get("message"), dict) and matching_terminal(entry["message"], thread_id, turn_id)
+            for entry in transcript if entry.get("direction") == "serverToClient"
+        ):
+            message = receive_live_message(events, deadline)
+            validator.validate_server(message, requests)
+            if has_unexpected_delegation_activity(message):
+                raise LiveProbeFailure("unexpectedToolActivity")
+            transcript.append({"direction": "serverToClient", "message": message})
+        metadata["surfaceClassification"] = validate_capture_contract({"runMetadata": metadata, "messages": transcript}, validator)
+        artifact, success = normalize_delegation_capture({"runMetadata": metadata, "messages": transcript})
+        if not success:
+            failure = artifact["outcome"]["failure"]  # type: ignore[index]
+        else:
+            write_json(output, artifact)
+            print(f"repeatabilitySha256={artifact['repeatabilityDigest']}")
+            print(f"fixture={output.resolve()}")
+            return True
+    except (LiveProbeFailure, ContractMessageError) as error:
+        failure = error.category
+    finally:
+        if process is not None:
+            if process.stdin is not None:
+                process.stdin.close()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+        remove_disposable_directory(temp_root)
+    write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": failure or "unknownFailure", "success": False}, "probeInputRevision": "live-delegation-v1", "runtime": metadata["runtime"]})
+    return False
 
 
 def sanitize_controls_capture(
@@ -1791,6 +1953,10 @@ def build_parser() -> argparse.ArgumentParser:
     live_parser.add_argument("--confirm-live-model", action="store_true", required=True)
     live_parser.add_argument("--output", required=True, type=Path)
     live_parser.add_argument("--timeout-seconds", type=float, default=120.0)
+    delegation_live_parser = subparsers.add_parser("live-delegation")
+    delegation_live_parser.add_argument("--confirm-live-delegation", action="store_true", required=True)
+    delegation_live_parser.add_argument("--output", required=True, type=Path)
+    delegation_live_parser.add_argument("--timeout-seconds", type=float, default=120.0)
     controls_live_parser = subparsers.add_parser("live-controls")
     controls_live_parser.add_argument("--confirm-live-model", action="store_true", required=True)
     controls_live_parser.add_argument("--capture-output", required=True, type=Path)
@@ -1814,6 +1980,8 @@ def main() -> int:
         return 0 if normalize_controls_file(arguments.input, arguments.output) else 1
     elif arguments.command == "live-turn":
         return 0 if live_turn(arguments.output, arguments.timeout_seconds) else 1
+    elif arguments.command == "live-delegation":
+        return 0 if live_delegation(arguments.output, arguments.timeout_seconds) else 1
     elif arguments.command == "live-controls":
         return 0 if live_controls(
             arguments.capture_output, arguments.output, arguments.timeout_seconds, arguments.late_observation_seconds

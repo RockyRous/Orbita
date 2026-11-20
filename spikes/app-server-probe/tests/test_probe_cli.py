@@ -436,6 +436,33 @@ class ProbeCliTests(unittest.TestCase):
             self.assertFalse(output.exists())
             self.assertFalse(capture.exists())
 
+    def test_live_delegation_requires_its_own_explicit_opt_in(self) -> None:
+        parser = PROBE_MODULE.build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["live-delegation", "--output", "delegation.json"])
+        arguments = parser.parse_args(
+            ["live-delegation", "--confirm-live-delegation", "--output", "delegation.json"]
+        )
+        self.assertTrue(arguments.confirm_live_delegation)
+
+    def test_delegation_activity_gate_allows_only_spawn_and_subagent_activity(self) -> None:
+        accepted = {
+            "method": "item/completed",
+            "params": {"item": {"type": "collabAgentToolCall", "tool": "spawnAgent"}},
+        }
+        unexpected_collaboration = {
+            "method": "item/completed",
+            "params": {"item": {"type": "collabAgentToolCall", "tool": "wait"}},
+        }
+        command = {
+            "method": "item/completed",
+            "params": {"item": {"type": "commandExecution"}},
+        }
+
+        self.assertFalse(PROBE_MODULE.has_unexpected_delegation_activity(accepted))
+        self.assertTrue(PROBE_MODULE.has_unexpected_delegation_activity(unexpected_collaboration))
+        self.assertTrue(PROBE_MODULE.has_unexpected_delegation_activity(command))
+
     def test_control_event_wait_ignores_other_turn_and_times_out_bounded(self) -> None:
         events: "queue.Queue[object]" = PROBE_MODULE.queue.Queue()
         events.put(
