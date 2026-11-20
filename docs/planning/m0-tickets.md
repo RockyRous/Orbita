@@ -33,11 +33,11 @@ The parent tracks the go/no-go gate described in [the protocol spike plan](../pr
 
 **Acceptance criteria:**
 
-- [ ] A follow-up creates a new turn under the same root-task identity.
-- [ ] The follow-up result is distinguishable from the previous turn.
-- [ ] An active turn can be interrupted through a supported action.
-- [ ] The interrupted outcome is confirmed by source evidence rather than transport silence.
-- [ ] Error, timeout, and late-event behavior are captured in fixtures and tests.
+- [x] A follow-up creates a new turn under the same root-task identity.
+- [x] The follow-up result is distinguishable from the previous turn.
+- [x] An active turn can be interrupted through a supported action.
+- [x] The interrupted outcome is confirmed by source evidence rather than transport silence.
+- [x] Error, timeout, and late-event behavior are captured in fixtures and tests.
 
 **Proposed labels:** `enhancement`
 

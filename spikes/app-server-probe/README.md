@@ -25,6 +25,14 @@ observed, the matching terminal event was `turn/completed` with
 semantic projections share SHA-256
 `491637aea23170f7c5e2ea44c420299c38e8d3090b852be592e3c3d220e682d3`.
 
+`fixtures/live-controls.json` is the reviewed pinned evidence for the next
+control slice. It proves a completed root turn, a completed follow-up turn in
+the same thread, and an interrupted third turn after a correlated public
+`turn/interrupt` request/response. Its normalized projection is
+`fixtures/live-controls-normalized.json`. It records no tool or server-request
+activity; the lack of a late event is an observation, not a requirement for
+future runtimes.
+
 The offline harness now validates the following intended live boundary:
 
 The live slice:
@@ -56,6 +64,17 @@ copying authentication storage. A single deadline bounds the handshake, thread,
 turn, streaming, and terminal wait. EOF, timeout, an error response, a
 non-matching terminal event, or any terminal status other than `completed`
 fails closed.
+
+The control slice is separately opt-in and consumes model quota:
+
+```powershell
+python -B spikes/app-server-probe/probe.py live-controls --confirm-live-model --timeout-seconds 120 --late-observation-seconds 2 --capture-output <sanitized-capture-path> --output <normalized-evidence-path>
+```
+
+It runs the root sentinel, a same-thread follow-up sentinel, then a distinct
+long no-tools turn which it interrupts only after its matching `turn/started`.
+It requires both the correlated interrupt response and a matching
+`turn/completed` with `status: "interrupted"`.
 
 The generated schema tree is deliberately not checked in: version 0.170.0 emits
 808 JSON files. The fixture retains the exact commands, file counts, full-tree

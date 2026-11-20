@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -150,6 +151,15 @@ def remove_disposable_directory(path: Path) -> None:
             if attempt == 49:
                 raise
             time.sleep(0.1)
+
+
+@contextlib.contextmanager
+def disposable_directory(prefix: str) -> Any:
+    path = Path(tempfile.mkdtemp(prefix=prefix))
+    try:
+        yield path
+    finally:
+        remove_disposable_directory(path)
 
 
 def method_names(value: Any) -> set[str]:
@@ -387,10 +397,7 @@ def initialize(output: Path) -> None:
         },
     }
     initialized = {"method": "initialized"}
-    with tempfile.TemporaryDirectory(
-        prefix="orbita-m0-live-", ignore_cleanup_errors=True
-    ) as temp_dir:
-        temp_root = Path(temp_dir)
+    with disposable_directory("orbita-m0-live-") as temp_root:
         probe_home = temp_root / "codex-home"
         project = temp_root / "project"
         probe_home.mkdir()
@@ -450,8 +457,6 @@ def initialize(output: Path) -> None:
                 process.stdout.close()
             if process.stderr is not None:
                 process.stderr.close()
-
-    remove_disposable_directory(temp_root)
 
     normalized_response = json.loads(json.dumps(response))
     normalized_response["result"]["codexHome"] = "<redacted-absolute-path>"
@@ -1411,22 +1416,35 @@ def sanitize_controls_capture(
     """Keep schema-valid evidence while removing local paths, identities, and unreviewed text."""
     aliases = {thread_id: "<THREAD_1>"}
     aliases.update({turn_id: f"<TURN_{index}>" for index, turn_id in enumerate(turn_ids, start=1)})
+    aliases["local"] = "<LOCAL_ENVIRONMENT>"
+    opaque_id_aliases: dict[str, str] = {}
     known_text = {LIVE_PROMPT, LIVE_SENTINEL, FOLLOW_UP_PROMPT, FOLLOW_UP_SENTINEL, INTERRUPT_PROMPT}
     windows_path = re.compile(r"[A-Za-z]:\\[^\r\n]*")
+    uuid = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
     def sanitize(value: object, key: str | None = None) -> object:
         if isinstance(value, dict):
             return {name: sanitize(child, name) for name, child in value.items()}
         if isinstance(value, list):
             return [sanitize(child, key) for child in value]
+        if key in {"createdAt", "emittedAtMs", "startedAtMs", "updatedAt", "updatedAtMs"} and isinstance(value, (int, float)):
+            return 0
         if not isinstance(value, str):
             return value
         if value in aliases:
             return aliases[value]
+        if uuid.fullmatch(value):
+            if value not in opaque_id_aliases:
+                opaque_id_aliases[value] = f"<OPAQUE_ID_{len(opaque_id_aliases) + 1}>"
+            return opaque_id_aliases[value]
         if key in {"cwd", "codexHome"}:
             return "<DISPOSABLE_PROJECT>" if value == str(project.resolve()) else "<redacted-absolute-path>"
         if key == "userAgent":
             return "<SERVER_USER_AGENT>"
+        if key == "installationId":
+            return "<INSTALLATION_1>"
+        if key == "serverName":
+            return "<SERVER_NAME>"
         if key in {"delta", "text", "message"} and value not in known_text:
             return "<REDACTED_AGENT_TEXT>"
         return windows_path.sub("<redacted-absolute-path>", value)

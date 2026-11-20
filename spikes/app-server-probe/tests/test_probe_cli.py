@@ -42,6 +42,24 @@ def run_normalize(capture: dict[str, object], temp_dir: str) -> tuple[subprocess
 
 
 class ProbeCliTests(unittest.TestCase):
+    def test_controls_capture_redacts_machine_identity_and_volatile_timing(self) -> None:
+        sanitized = PROBE_MODULE.sanitize_controls_capture(
+            {"runtime": {"installationId": "install-private", "serverName": "WORKSTATION-PRIVATE"}},
+            [{"emittedAtMs": 123456789, "message": {"params": {"environmentId": "local", "createdAt": 12345, "item": {"id": "12345678-1234-1234-1234-123456789abc"}}}}],
+            Path("C:/disposable/project"),
+            "thread-private",
+            ["turn-one", "turn-two", "turn-three"],
+        )
+
+        metadata = sanitized["runMetadata"]
+        event = sanitized["messages"][0]
+        self.assertEqual(metadata["runtime"]["installationId"], "<INSTALLATION_1>")
+        self.assertEqual(metadata["runtime"]["serverName"], "<SERVER_NAME>")
+        self.assertEqual(event["emittedAtMs"], 0)
+        self.assertEqual(event["message"]["params"]["createdAt"], 0)
+        self.assertEqual(event["message"]["params"]["environmentId"], "<LOCAL_ENVIRONMENT>")
+        self.assertEqual(event["message"]["params"]["item"]["id"], "<OPAQUE_ID_1>")
+
     def test_follow_up_and_interrupt_normalize_from_same_root_thread(self) -> None:
         capture = json.loads(SUCCESSFUL_TURN.read_text(encoding="utf-8"))
         issue3 = json.loads(ISSUE3_EVENTS.read_text(encoding="utf-8"))

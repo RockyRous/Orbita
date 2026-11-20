@@ -43,8 +43,8 @@ M0 owns the first populated version of this table.
 | --- | --- | --- | --- |
 | Initialize a client | Establish a compatible session | Successful pinned request/response | Directly observed |
 | Start a root task | Create one thread and turn | IDs plus live events and terminal outcome | Directly observed |
-| Follow up | Add a turn to the same root task | Same thread identity and new outcome | Untested |
-| Interrupt | Stop the current root turn | Supported action and confirmed outcome | Untested |
+| Follow up | Add a turn to the same root task | Same thread identity and new outcome | Directly observed |
+| Interrupt | Stop the current root turn | Supported action and confirmed outcome | Directly observed |
 | Discover delegation | Show observed delegated work | Direct event or item evidence | Untested |
 | Correlate a child | Create a task card or fallback | Stable or safely correlatable identity | Untested |
 | Relate parent and child | Build hierarchy | Direct relationship evidence | Untested |
