@@ -22,7 +22,10 @@ from jsonschema import Draft7Validator
 from jsonschema.exceptions import ValidationError
 
 
-PINNED_VERSION = "codex-cli 0.170.0"
+# The historical fixture suite stays pinned to 0.170.0 by default. A new
+# compatibility candidate must opt in explicitly so it cannot overwrite or
+# silently reinterpret old evidence.
+PINNED_VERSION = os.environ.get("ORBITA_PINNED_CODEX_VERSION", "codex-cli 0.170.0")
 SURFACES = ("initialize", "initialized", "thread/start", "turn/start")
 LIVE_PROMPT = "Reply with exactly: ORBITA_M0_OK. Do not use tools."
 LIVE_SENTINEL = "ORBITA_M0_OK"
@@ -1568,8 +1571,9 @@ def has_unexpected_delegation_activity(message: dict[str, object]) -> bool:
     return has_disallowed_activity(message)
 
 
-def pinned_live_metadata(executable: Path, version: str) -> dict[str, object]:
-    contract_fixture_path = Path(__file__).resolve().parent / "fixtures" / "contract.json"
+def pinned_live_metadata(executable: Path, version: str, contract_fixture_path: Path | None = None) -> dict[str, object]:
+    if contract_fixture_path is None:
+        contract_fixture_path = Path(__file__).resolve().parent / "fixtures" / "contract.json"
     contract_fixture = json.loads(contract_fixture_path.read_text(encoding="utf-8"))
     observed_runtime = runtime_record(version, executable)
     if contract_fixture.get("runtime") != observed_runtime:
@@ -1590,7 +1594,7 @@ def pinned_live_metadata(executable: Path, version: str) -> dict[str, object]:
     }
 
 
-def live_turn(output: Path, timeout_seconds: float) -> bool:
+def live_turn(output: Path, timeout_seconds: float, contract_fixture: Path | None = None) -> bool:
     if timeout_seconds <= 0:
         write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": "invalidDeadline", "success": False}})
         return False
@@ -1601,7 +1605,7 @@ def live_turn(output: Path, timeout_seconds: float) -> bool:
         return False
 
     try:
-        metadata = pinned_live_metadata(executable, version)
+        metadata = pinned_live_metadata(executable, version, contract_fixture)
     except LiveProbeFailure as error:
         write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": error.category, "success": False}})
         return False
@@ -1739,7 +1743,7 @@ def live_turn(output: Path, timeout_seconds: float) -> bool:
     return success
 
 
-def live_delegation(output: Path, timeout_seconds: float) -> bool:
+def live_delegation(output: Path, timeout_seconds: float, contract_fixture: Path | None = None) -> bool:
     """Explicitly opt-in, least-privilege candidate probe for issue #4.
 
     This is intentionally not called by any test. It persists only the sanitized
@@ -1755,7 +1759,7 @@ def live_delegation(output: Path, timeout_seconds: float) -> bool:
         write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": "runtimeVersionMismatch", "success": False}})
         return False
     try:
-        metadata = pinned_live_metadata(executable, version)
+        metadata = pinned_live_metadata(executable, version, contract_fixture)
     except LiveProbeFailure as error:
         write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": error.category, "success": False}})
         return False
@@ -1919,7 +1923,13 @@ def sanitize_controls_capture(
     }
 
 
-def live_controls(capture_output: Path, output: Path, timeout_seconds: float, late_observation_seconds: float) -> bool:
+def live_controls(
+    capture_output: Path,
+    output: Path,
+    timeout_seconds: float,
+    late_observation_seconds: float,
+    contract_fixture: Path | None = None,
+) -> bool:
     if timeout_seconds <= 0:
         write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": "invalidDeadline", "success": False}})
         return False
@@ -1932,7 +1942,7 @@ def live_controls(capture_output: Path, output: Path, timeout_seconds: float, la
         write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": "runtimeVersionMismatch", "success": False}})
         return False
     try:
-        metadata = pinned_live_metadata(executable, version)
+        metadata = pinned_live_metadata(executable, version, contract_fixture)
     except LiveProbeFailure as error:
         write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": error.category, "success": False}})
         return False
@@ -2071,16 +2081,19 @@ def build_parser() -> argparse.ArgumentParser:
     live_parser.add_argument("--confirm-live-model", action="store_true", required=True)
     live_parser.add_argument("--output", required=True, type=Path)
     live_parser.add_argument("--timeout-seconds", type=float, default=120.0)
+    live_parser.add_argument("--contract-fixture", type=Path)
     delegation_live_parser = subparsers.add_parser("live-delegation")
     delegation_live_parser.add_argument("--confirm-live-delegation", action="store_true", required=True)
     delegation_live_parser.add_argument("--output", required=True, type=Path)
     delegation_live_parser.add_argument("--timeout-seconds", type=float, default=120.0)
+    delegation_live_parser.add_argument("--contract-fixture", type=Path)
     controls_live_parser = subparsers.add_parser("live-controls")
     controls_live_parser.add_argument("--confirm-live-model", action="store_true", required=True)
     controls_live_parser.add_argument("--capture-output", required=True, type=Path)
     controls_live_parser.add_argument("--output", required=True, type=Path)
     controls_live_parser.add_argument("--timeout-seconds", type=float, default=120.0)
     controls_live_parser.add_argument("--late-observation-seconds", type=float, default=2.0)
+    controls_live_parser.add_argument("--contract-fixture", type=Path)
     return parser
 
 
@@ -2097,12 +2110,16 @@ def main() -> int:
     elif arguments.command == "normalize-controls":
         return 0 if normalize_controls_file(arguments.input, arguments.output) else 1
     elif arguments.command == "live-turn":
-        return 0 if live_turn(arguments.output, arguments.timeout_seconds) else 1
+        return 0 if live_turn(arguments.output, arguments.timeout_seconds, arguments.contract_fixture) else 1
     elif arguments.command == "live-delegation":
-        return 0 if live_delegation(arguments.output, arguments.timeout_seconds) else 1
+        return 0 if live_delegation(arguments.output, arguments.timeout_seconds, arguments.contract_fixture) else 1
     elif arguments.command == "live-controls":
         return 0 if live_controls(
-            arguments.capture_output, arguments.output, arguments.timeout_seconds, arguments.late_observation_seconds
+            arguments.capture_output,
+            arguments.output,
+            arguments.timeout_seconds,
+            arguments.late_observation_seconds,
+            arguments.contract_fixture,
         ) else 1
     return 0
 

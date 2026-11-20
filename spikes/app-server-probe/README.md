@@ -4,11 +4,12 @@ This is a **throwaway M0 experiment**, not Orbita's production stack. It uses
 Python to exercise only the public Codex App Server process boundary over
 newline-delimited JSON on stdio.
 
-The probe is pinned to `codex-cli 0.170.0`. It fails closed for another reported
-version. The checked-in fixtures were produced with the launcher digest shown
-in `fixtures/contract.json`; a different launcher is not silently accepted as
-equivalent. The native executable digest is recorded separately in
-`docs/protocol/m0-contract-research.md`.
+The historical default profile is pinned to `codex-cli 0.170.0`. It fails
+closed for another reported version. A separate `0.171.0` compatibility
+profile is recorded in `fixtures/*-0.171.0.json` and
+`docs/protocol/compatibility-profile-0.171.0.md`; it is selected only with
+`ORBITA_PINNED_CODEX_VERSION='codex-cli 0.171.0'` and an explicit
+`--contract-fixture`. No profile silently substitutes for another version.
 
 ## Current evidence status
 

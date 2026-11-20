@@ -1,10 +1,10 @@
 # Runtime Boundary for the Desktop MVP
 
-This document describes what the future Tauri/Rust core may claim for the currently pinned `codex-cli 0.170.0` experiment. It is not a general compatibility promise.
+This document describes what the future Tauri/Rust core may claim for the currently qualified `codex-cli 0.171.0` Windows x64 profile. It is not a general compatibility promise.
 
 ## Confirmed root path
 
-The M0 fixtures directly observed initialization over JSONL/stdio, root launch, same-thread follow-up, interruption, and matching authoritative terminal `turn/completed` outcome. The core must pin the executable/version/digest and generated contract before enabling these commands.
+The 0.171.0 fixtures directly observed initialization over JSONL/stdio, root launch, same-thread follow-up, interruption, and matching authoritative terminal `turn/completed` outcome. The core must pin the native executable/version/digest and generated contract before enabling these commands. Historical 0.170.0 fixtures remain immutable evidence for their own profile.
 
 ## Launch and shutdown
 

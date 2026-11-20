@@ -1,0 +1,38 @@
+{
+  "fixtureSchemaVersion": 1,
+  "outcome": {
+    "errorObserved": false,
+    "followUpFinalText": "ORBITA_M0_FOLLOWUP_OK",
+    "followUpObserved": true,
+    "interruptResponseObserved": true,
+    "interruptedTerminalObserved": true,
+    "lateEventObserved": false,
+    "sameRootThread": true,
+    "success": true
+  },
+  "surfaceClassification": {
+    "account/rateLimits/updated": "stable",
+    "account/updated": "stable",
+    "initialize": "stable",
+    "initialized": "stable",
+    "item/agentMessage/delta": "stable",
+    "item/completed": "stable",
+    "item/started": "stable",
+    "mcpServer/startupStatus/updated": "stable",
+    "remoteControl/status/changed": "stable",
+    "thread/start": "stable",
+    "thread/started": "stable",
+    "thread/status/changed": "stable",
+    "thread/tokenUsage/updated": "stable",
+    "turn/completed": "stable",
+    "turn/interrupt": "stable",
+    "turn/start": "stable",
+    "turn/started": "stable"
+  },
+  "threadId": "<THREAD_1>",
+  "turnIds": [
+    "<TURN_1>",
+    "<TURN_2>",
+    "<TURN_3>"
+  ]
+}

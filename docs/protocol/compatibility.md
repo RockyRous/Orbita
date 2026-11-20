@@ -2,9 +2,9 @@
 
 ## Status
 
-No Codex App Server version is supported yet. M0 must validate a pinned local runtime before Orbita makes product promises.
+The exact Windows x64 `codex-cli 0.171.0` profile is qualified for the narrow root path: initialization, root launch, same-thread follow-up, interruption, and authoritative terminal outcome. See [the 0.171.0 profile](compatibility-profile-0.171.0.md).
 
-The development environment exposed `codex-cli 0.170.0` during product discovery, but that observation is not a compatibility claim and does not replace a reproducible M0 run.
+This is not general Codex compatibility and does not qualify hierarchy, approvals, recovery, background continuation, or another runtime tuple. Historical `0.170.0` fixtures remain evidence only for their original profile.
 
 ## Sources of truth
 

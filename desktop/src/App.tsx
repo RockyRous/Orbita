@@ -27,6 +27,18 @@ function App() {
     }
   }
 
+  async function connectRuntime() {
+    setChecking(true);
+    setRuntime({ phase: "checking", message: "Подключаем Codex App Server…" });
+    try {
+      setRuntime(await invoke<RuntimeState>("connect_runtime"));
+    } catch (error) {
+      setRuntime({ phase: "unavailable", message: String(error) });
+    } finally {
+      setChecking(false);
+    }
+  }
+
   return (
     <main className="shell">
       <aside className="sidebar" aria-label="Навигация">
@@ -46,9 +58,15 @@ function App() {
               {runtime.detectedVersion ? <small>Версия: {runtime.detectedVersion}</small> : null}
             </div>
           </div>
-          <button className="link-button" onClick={inspectRuntime} disabled={checking}>
-            {checking ? "Проверка…" : "Проверить runtime"}
-          </button>
+          {runtime.phase === "compatible" ? (
+            <button className="link-button" onClick={connectRuntime} disabled={checking}>
+              {checking ? "Подключение…" : "Подключить Codex"}
+            </button>
+          ) : (
+            <button className="link-button" onClick={inspectRuntime} disabled={checking}>
+              {checking ? "Проверка…" : "Проверить runtime"}
+            </button>
+          )}
         </section>
       </aside>
 

@@ -1,5 +1,5 @@
 export type RuntimeState = {
-  phase: "not_checked" | "checking" | "compatible" | "incompatible" | "unavailable";
+  phase: "not_checked" | "checking" | "compatible" | "connected" | "incompatible" | "unavailable";
   message: string;
   executablePath?: string;
   detectedVersion?: string;
