@@ -31,14 +31,15 @@ Canonical documentation:
 
 ## Run the observer preview
 
-The current UI is a local fixture-backed preview; it does not start Codex work.
+The current UI is a native Windows fixture-backed preview; it does not start Codex work.
 On Windows, run:
 
 ```powershell
 .\scripts\start-observer.ps1
 ```
 
-It opens a loopback-only browser app. Press `Ctrl+C` in the PowerShell window to stop it.
+It opens the native desktop app. Close its window to stop it. To use the old
+loopback browser preview explicitly, run `./scripts/start-observer.ps1 -BrowserPreview`.
 
 ## Contributing
 
