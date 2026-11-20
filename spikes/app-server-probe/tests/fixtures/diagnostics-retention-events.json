@@ -1,0 +1,63 @@
+{
+  "events": [
+    {
+      "direction": "serverToClient",
+      "message": {
+        "method": "turn/started",
+        "params": {
+          "threadId": "<THREAD_1>",
+          "turnId": "<TURN_1>"
+        }
+      }
+    },
+    {
+      "direction": "serverToClient",
+      "message": {
+        "method": "item/agentMessage/delta",
+        "params": {
+          "itemId": "<ITEM_1>",
+          "threadId": "<THREAD_1>",
+          "turnId": "<TURN_1>"
+        }
+      }
+    },
+    {
+      "direction": "serverToClient",
+      "message": {
+        "id": "<REQUEST_1>",
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+          "itemId": "<ITEM_2>",
+          "threadId": "<THREAD_1>",
+          "turnId": "<TURN_1>"
+        }
+      }
+    },
+    {
+      "direction": "serverToClient",
+      "message": {
+        "method": "serverRequest/resolved",
+        "params": {
+          "requestId": "<REQUEST_1>",
+          "threadId": "<THREAD_1>"
+        }
+      }
+    },
+    {
+      "direction": "serverToClient",
+      "message": {
+        "method": "turn/completed",
+        "params": {
+          "thread": {
+            "id": "<THREAD_1>"
+          },
+          "turn": {
+            "id": "<TURN_1>",
+            "status": "completed"
+          }
+        }
+      }
+    }
+  ],
+  "fixtureSchemaVersion": 1
+}

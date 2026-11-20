@@ -1,0 +1,15 @@
+{
+  "fixtureSchemaVersion": 1,
+  "projectionVersion": 1,
+  "runtime": {
+    "cliVersion": "codex-cli 0.170.0",
+    "contractManifestSha256": "86d780e116e5d176752ec0065b55e81267c517b1b71423e22fa4af4a67357118",
+    "transport": "stdio://"
+  },
+  "events": [
+    {"eventId": "event-root-1", "kind": "root/observed", "rootId": "<ROOT_1>"},
+    {"eventId": "event-outcome-1", "kind": "outcome/observed", "rootId": "<ROOT_1>", "status": "completed"},
+    {"eventId": "event-outcome-1", "kind": "outcome/observed", "rootId": "<ROOT_1>", "status": "completed"},
+    {"eventId": "event-future-1", "kind": "future/continuity", "rootId": "<ROOT_1>", "payload": {"path": "<redacted-absolute-path>"}}
+  ]
+}
