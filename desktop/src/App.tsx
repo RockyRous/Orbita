@@ -40,7 +40,11 @@ function App() {
         <section className="sidebar-bottom">
           <div className={`runtime runtime-${runtime.phase}`}>
             <span className="status-dot" />
-            <div><strong>Codex runtime</strong><small>{runtime.message}</small></div>
+            <div>
+              <strong>Codex runtime</strong>
+              <small>{runtime.message}</small>
+              {runtime.detectedVersion ? <small>Версия: {runtime.detectedVersion}</small> : null}
+            </div>
           </div>
           <button className="link-button" onClick={inspectRuntime} disabled={checking}>
             {checking ? "Проверка…" : "Проверить runtime"}

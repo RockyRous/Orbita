@@ -1,6 +1,8 @@
 export type RuntimeState = {
   phase: "not_checked" | "checking" | "compatible" | "incompatible" | "unavailable";
   message: string;
+  executablePath?: string;
+  detectedVersion?: string;
 };
 
 export type ProjectionEnvelope = {
