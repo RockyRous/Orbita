@@ -288,6 +288,28 @@ Full issue acceptance additionally requires a genuine child failure and an unava
 
 ## Projection and fallback rules
 
+## Live observation: unlinked child boundary
+
+The pinned live probe was run with `multi_agent_v2` explicitly enabled, legacy
+`multi_agent` disabled, an isolated read-only project containing only
+`alpha.txt` and `beta.txt`, and no network, MCP, or approval path. It observed
+one non-root child `turn/completed`, but no root-side `spawnAgent` or
+`subAgentActivity` item. A schema-validated `thread/read` for that observed
+child did not establish `parentThreadId == root`.
+
+The sanitized failure fixture is
+[`live-delegation.json`](../../spikes/app-server-probe/fixtures/live-delegation.json).
+It retains only feature overrides and alias-only evidence kinds/identities; it
+contains no raw transcript, prompt, paths, model text, or credentials.
+
+This is evidence that a child terminal can be delivered without enough
+correlation to build an Orbita hierarchy in this exact runtime profile. It is
+not evidence of a parent-child edge, an assignment, two children, or a
+supported multi-agent workspace. Orbita must render such evidence as an
+unlinked, ambiguous execution or gap, never as a child task card attached to a
+root. Issue #4 remains open because its positive and genuine-child-failure
+requirements are not met.
+
 - Create a child task card only after a unique child execution identity is observed. A spawn attempt without a receiver is a timeline event on the sender, not a child card.
 - Add a tree edge only from direct parent evidence. If a child identity exists without a supported edge, render a neutral unlinked execution as required by the UX flow.
 - If two direct sources disagree on parent or identity, preserve both evidence records, classify the relationship ambiguous, and render no edge.

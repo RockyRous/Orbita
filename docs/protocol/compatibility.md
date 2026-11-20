@@ -45,11 +45,11 @@ M0 owns the first populated version of this table.
 | Start a root task | Create one thread and turn | IDs plus live events and terminal outcome | Directly observed |
 | Follow up | Add a turn to the same root task | Same thread identity and new outcome | Directly observed |
 | Interrupt | Stop the current root turn | Supported action and confirmed outcome | Directly observed |
-| Discover delegation | Show observed delegated work | Direct event or item evidence | Untested |
-| Correlate a child | Create a task card or fallback | Stable or safely correlatable identity | Untested |
-| Relate parent and child | Build hierarchy | Direct relationship evidence | Untested |
-| Show assignment | Explain the card's work | Source-provided instruction or summary | Untested |
-| Show execution status | Display source state | Documented transition evidence | Untested |
+| Discover delegation | Show observed delegated work | Direct event or item evidence | Ambiguous |
+| Correlate a child | Create a task card or fallback | Stable or safely correlatable identity | Ambiguous |
+| Relate parent and child | Build hierarchy | Direct relationship evidence | Unavailable |
+| Show assignment | Explain the card's work | Source-provided instruction or summary | Unavailable |
+| Show execution status | Display source state | Documented transition evidence | Ambiguous |
 | Show terminal outcome | Mark result without guessing | Authoritative terminal evidence | Directly observed |
 | Handle approval | Surface and answer attention | Bidirectional request/response evidence | Untested |
 | Recover history | Rebuild continuity | Restart/reconnect evidence | Untested |
