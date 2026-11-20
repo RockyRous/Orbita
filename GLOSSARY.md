@@ -8,6 +8,10 @@ Orbita presents observable Codex work as a structured workspace without replacin
 A user-level unit of work that can contain multiple follow-ups and agent executions until the user finishes it.
 _Avoid_: Session, root agent, job
 
+**Root-task observer**:
+A deliberately narrow Orbita workspace that shows evidence-backed activity and outcomes for one root task without claiming unsupported hierarchy, approvals, or recovery.
+_Avoid_: Agent tracker, full workspace
+
 **Turn**:
 One request-and-result cycle within a root task.
 _Avoid_: Task, session

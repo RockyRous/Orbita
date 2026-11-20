@@ -12,13 +12,14 @@ Orbita advances through evidence gates, not calendar milestones. A phase begins 
 
 No production desktop architecture is selected before this gate.
 
-## M1: Thin root-task path
+## M1: Root-task observer
 
 **Purpose:** deliver the narrowest end-to-end path from project selection to one root-task outcome.
 
-**Entry:** M0 is a go and identifies a supported launch and event path.
+**Entry:** M0 identifies a supported root launch, follow-up, interrupt, and
+terminal-outcome path, with unsupported capabilities visibly degraded.
 
-**Exit:** a user can select one project, launch one root task, see source-backed root activity, interrupt it, send a follow-up, and receive a terminal outcome with visible provenance.
+**Exit:** a user can select one project, launch one root task, see source-backed root activity, interrupt it, send a follow-up, receive a terminal outcome with visible provenance, and see unsupported recovery as a gap.
 
 ## M2: Observable execution workspace
 

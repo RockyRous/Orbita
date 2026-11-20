@@ -2,6 +2,12 @@
 
 ## Product boundary
 
+**Current implementation re-scope:** M1 is a root-task observer for the pinned
+runtime, following the M0 assessment. It includes root launch, source-backed
+turn activity/outcome, same-thread follow-up, interrupt, and explicit gaps. It
+does not include a subagent hierarchy, actionable approvals, or recovery claims
+until the corresponding M0 evidence exists. See [ADR 0002](../adr/0002-root-task-observer.md).
+
 The MVP serves one local user on Windows 11. The user selects one local project and can have one open root task at a time. That root task may contain any number of subagent executions actually exposed by Codex.
 
 The product proceeds only after the M0 protocol spike satisfies the go/no-go criteria in [the spike plan](../protocol/spike-plan.md).

@@ -24,6 +24,14 @@ flowchart LR
 
 The diagram describes responsibilities, not a framework, process topology, database, or IPC choice.
 
+## Current implementation scope
+
+M1 implements the UI as a **root-task observer**. The visible projection is
+limited to the evidence currently proven for the pinned runtime: root turns,
+follow-up, interrupt, terminal outcome, provenance, and explicit gaps. A
+subagent tree, approval actions, and recovered history remain absent rather
+than represented by placeholders that could imply support.
+
 ## Responsibility boundaries
 
 ### Codex App Server

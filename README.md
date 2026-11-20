@@ -1,8 +1,8 @@
 # Orbita
 
-**Orbita** is a local-first visual control plane for Codex on Windows. It launches one root task and presents observable root and subagent executions as a source-driven task workspace with hierarchy, activity, outcomes, and attention.
+**Orbita** is a local-first visual control plane for Codex on Windows. Its first implementation is a source-driven root-task observer: activity, outcomes, follow-up, interrupt, provenance, and explicit gaps for one local root task.
 
-> Status: specification and implementation planning. The source code has not been started yet.
+> Status: M1 root-task observer interface is in implementation. Hierarchy, approvals, and recovery remain evidence-gated.
 
 ## Product direction
 
