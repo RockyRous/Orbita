@@ -51,7 +51,7 @@ M0 owns the first populated version of this table.
 | Show assignment | Explain the card's work | Source-provided instruction or summary | Unavailable |
 | Show execution status | Display source state | Documented transition evidence | Ambiguous |
 | Show terminal outcome | Mark result without guessing | Authoritative terminal evidence | Directly observed |
-| Handle approval | Surface and answer attention | Bidirectional request/response evidence | Untested |
+| Handle approval | Surface and answer attention | Bidirectional request/response evidence | Unavailable |
 | Recover history | Rebuild continuity | Restart/reconnect evidence | Untested |
 | Detect gaps | Avoid false completeness | Missing-history or cursor evidence | Untested |
 | Continue in background | Avoid silent task loss | Proven public runtime lifecycle | Untested |

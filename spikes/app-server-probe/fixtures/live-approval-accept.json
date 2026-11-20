@@ -1,0 +1,30 @@
+{
+  "fixtureSchemaVersion": 1,
+  "outcome": {
+    "approvalObserved": false,
+    "decision": null,
+    "failure": "approvalNotObservedBeforeTerminal",
+    "resolutionObserved": false,
+    "sentinelObserved": false,
+    "success": false,
+    "terminalStatus": "failed"
+  },
+  "runtime": "codex-cli 0.170.0",
+  "sanitation": {
+    "omitted": [
+      "rawProtocol",
+      "paths",
+      "requestIds",
+      "threadIds",
+      "turnIds",
+      "itemIds",
+      "reason"
+    ],
+    "policyVersion": 1
+  },
+  "scenario": "human-gated-ordinary-command-approval",
+  "surfaceClassification": {
+    "item/commandExecution/requestApproval": "stable",
+    "serverRequest/resolved": "stable"
+  }
+}

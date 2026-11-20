@@ -84,6 +84,24 @@ All contract-exposed source context that is safe to render must be available to 
 
 ## Safe synthetic scenario
 
+## Live observation: ordinary command approval unavailable
+
+The human-gated probe was run against the pinned runtime with an isolated
+disposable project, `approvalPolicy: "on-request"`, reviewer `user`, a
+read-only sandbox, disabled network access, and a prompt limited to the fixed
+harmless command `echo ORBITA_APPROVAL_ACCEPTED`. No approval request was
+observed before the correlated turn reached terminal `failed` status. Therefore
+no operator decision, including `accept`, was sent.
+
+The sanitized result is
+[`live-approval-accept.json`](../../spikes/app-server-probe/fixtures/live-approval-accept.json).
+It retains no raw protocol, paths, identifiers, reason, or model content.
+
+This observation makes ordinary command approval **unavailable for this exact
+runtime/profile**, not supported. Orbita must not show actionable approval UI
+or claim response support from the schema alone. Issue #5 remains open pending
+a safe, source-backed configuration that emits an ordinary approval request.
+
 The first live approval experiment, when separately authorized, should run only in a disposable Git repository with an isolated probe home, bounded deadlines, no MCP servers, no reusable credentials in the project, and no network need. Its sole intended command prints the fixed sentinel `ORBITA_APPROVAL_ACCEPTED` and performs no write. The model instruction should request exactly that command, require an approval checkpoint, forbid all other tools/actions, and forbid file or network access.
 
 The scenario is successful only if the runtime emits a schema-valid ordinary `item/commandExecution/requestApproval` whose complete available source context is captured before any response. The harness pauses for an explicit test-operator choice. It then responds with the exact pinned response shape for `accept`, observes the matching `serverRequest/resolved`, observes the fixed sentinel through public command/turn evidence, and waits for the correlated terminal turn outcome.
