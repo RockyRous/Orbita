@@ -814,6 +814,190 @@ def normalize_turn_file(input_path: Path, output: Path) -> bool:
     return success
 
 
+def normalize_delegation_capture(capture: dict[str, object]) -> tuple[dict[str, object], bool]:
+    """Project only directly evidenced child executions from a pinned capture.
+
+    This deliberately accepts no inferred children: a completed spawn item supplies
+    the parent edge, activity supplies observed child activity, and a child
+    turn/completed notification supplies that child's outcome.
+    """
+    metadata = capture.get("runMetadata")
+    messages = capture.get("messages")
+    if not isinstance(metadata, dict) or not isinstance(messages, list):
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "invalidCapture", "success": False}}, False
+    runtime = metadata.get("runtime")
+    if not isinstance(runtime, dict) or runtime.get("cliVersion") != PINNED_VERSION:
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": "runtimeVersionMismatch", "success": False}}, False
+
+    children: dict[str, dict[str, object]] = {}
+    parent_thread_id: str | None = None
+    transcript: list[dict[str, object]] = []
+    allowed_agent_states = {"pendingInit", "running", "interrupted", "completed", "errored", "shutdown", "notFound"}
+    allowed_activity_kinds = {"started", "interacted", "interrupted", "completed"}
+    allowed_turn_statuses = {"inProgress", "completed", "failed", "interrupted"}
+
+    def failure(category: str) -> tuple[dict[str, object], bool]:
+        return {"fixtureSchemaVersion": 1, "outcome": {"failure": category, "success": False}}, False
+
+    for ordinal, entry in enumerate(messages):
+        if not isinstance(entry, dict) or entry.get("direction") != "serverToClient":
+            continue
+        message = entry.get("message")
+        if not isinstance(message, dict):
+            return failure("invalidContractMessage")
+        method = message.get("method")
+        params = message.get("params")
+        if not isinstance(params, dict):
+            continue
+        if method == "item/completed":
+            item = params.get("item")
+            if not isinstance(item, dict):
+                return failure("invalidContractMessage")
+            item_type = item.get("type")
+            if item_type == "collabAgentToolCall" and item.get("tool") == "spawnAgent":
+                sender = item.get("senderThreadId")
+                receivers = item.get("receiverThreadIds")
+                states = item.get("agentsStates")
+                if not isinstance(sender, str) or not sender or not isinstance(receivers, list) or not isinstance(states, dict):
+                    return failure("invalidContractMessage")
+                if not receivers:
+                    continue
+                if parent_thread_id is None:
+                    parent_thread_id = sender
+                elif sender != parent_thread_id:
+                    return failure("ambiguousParentIdentity")
+                prompt = item.get("prompt")
+                if prompt is not None and not isinstance(prompt, str):
+                    return failure("invalidContractMessage")
+                for receiver in receivers:
+                    if not isinstance(receiver, str) or not receiver:
+                        return failure("invalidContractMessage")
+                    if receiver in children:
+                        return failure("duplicateChildIdentity")
+                    state = states.get(receiver)
+                    status = state.get("status") if isinstance(state, dict) else None
+                    if not isinstance(status, str) or status not in allowed_agent_states:
+                        return failure("missingChildStatusEvidence")
+                    children[receiver] = {
+                        "assignment": prompt,
+                        "assignmentClassification": "directly observed" if prompt is not None else "unavailable",
+                        "activityOrdinals": [],
+                        "parentThreadId": sender,
+                        "status": status,
+                        "statusOrdinal": ordinal,
+                        "turnOutcome": None,
+                        "turnOrdinal": None,
+                    }
+                    transcript.append({"kind": "spawn", "ordinal": ordinal, "parent": sender, "child": receiver, "prompt": prompt, "status": status})
+            elif item_type == "subAgentActivity":
+                child_id = item.get("agentThreadId")
+                kind = item.get("kind")
+                if isinstance(child_id, str) and child_id in children:
+                    if not isinstance(kind, str) or kind not in allowed_activity_kinds:
+                        return failure("invalidContractMessage")
+                    children[child_id]["activityOrdinals"].append(ordinal)  # type: ignore[index]
+                    transcript.append({"kind": "activity", "ordinal": ordinal, "child": child_id, "activity": kind})
+        elif method == "turn/completed":
+            child_id = params.get("threadId")
+            turn = params.get("turn")
+            if isinstance(child_id, str) and child_id in children:
+                status = turn.get("status") if isinstance(turn, dict) else None
+                if not isinstance(status, str) or status not in allowed_turn_statuses:
+                    return failure("invalidContractMessage")
+                if children[child_id]["turnOutcome"] is not None:
+                    return failure("ambiguousChildOutcome")
+                children[child_id]["turnOutcome"] = status
+                children[child_id]["turnOrdinal"] = ordinal
+                transcript.append({"kind": "turnOutcome", "ordinal": ordinal, "child": child_id, "status": status})
+
+    if parent_thread_id is None or not children:
+        return failure("missingDirectParentEdge")
+    if len(children) < 2:
+        return failure("insufficientDistinctChildIdentities")
+    if any(not child["activityOrdinals"] for child in children.values()):
+        return failure("missingChildActivityEvidence")
+    if any(child["turnOutcome"] is None for child in children.values()):
+        return failure("missingChildOutcomeEvidence")
+
+    aliases = {parent_thread_id: "<ROOT_1>"}
+    aliases.update({child_id: f"<CHILD_{index}>" for index, child_id in enumerate(children, start=1)})
+    projected_children: list[dict[str, object]] = []
+    for child_id, child in children.items():
+        projected_children.append(
+            {
+                "activityEvidenceOrdinals": child["activityOrdinals"],
+                "assignment": child["assignment"],
+                "assignmentClassification": child["assignmentClassification"],
+                "identity": aliases[child_id],
+                "outcome": child["turnOutcome"],
+                "outcomeEvidenceOrdinal": child["turnOrdinal"],
+                "parentIdentity": "<ROOT_1>",
+                "status": child["status"],
+                "statusEvidenceOrdinal": child["statusOrdinal"],
+            }
+        )
+    sanitized_transcript = []
+    for record in transcript:
+        sanitized = dict(record)
+        for key in ("parent", "child"):
+            if key in sanitized:
+                sanitized[key] = aliases[sanitized[key]]
+        sanitized_transcript.append(sanitized)
+    fallback_verified = any(child["assignment"] is None for child in children.values())
+    projection = {
+        "children": projected_children,
+        "delegation": {
+            "allParentEdgesSupported": True,
+            "distinctChildIdentities": len(children),
+            "realChildCount": len(children),
+            "unavailableDetailFallbackVerified": fallback_verified,
+        },
+        "runtime": {"cliVersion": PINNED_VERSION},
+    }
+    return {
+        "children": projected_children,
+        "delegation": projection["delegation"],
+        "fixtureSchemaVersion": 1,
+        "outcome": {"childCount": len(children), "success": True},
+        "probeInputRevision": "delegation-offline-v1",
+        "repeatabilityDigest": canonical_digest(projection),
+        "repeatabilityProjection": projection,
+        "sanitation": {"aliased": ["threadId"], "omitted": ["model", "reasoningEffort"], "policyVersion": 1},
+        "surfaceClassification": metadata.get("surfaceClassification", {}),
+        "transcript": sanitized_transcript,
+    }, True
+
+
+def normalize_delegation_file(input_path: Path, output: Path) -> bool:
+    capture = json.loads(input_path.read_text(encoding="utf-8"))
+    if not isinstance(capture, dict):
+        artifact, success = {"fixtureSchemaVersion": 1, "outcome": {"failure": "invalidCapture", "success": False}}, False
+    else:
+        try:
+            with tempfile.TemporaryDirectory(prefix="orbita-m0-delegation-validate-") as temp_dir:
+                schema_dir = Path(temp_dir) / "stable"
+                generated = generate_contract(schema_dir, experimental=False)
+                metadata = capture.get("runMetadata")
+                contract = metadata.get("contract") if isinstance(metadata, dict) else None
+                if not isinstance(contract, dict) or contract.get("stableManifestSha256") != generated["manifestSha256"]:
+                    raise ContractMessageError("contractDigestMismatch")
+                executable = Path(codex_executable())
+                version = run_checked([str(executable), "--version"]).stdout.strip()
+                if version != PINNED_VERSION:
+                    raise ContractMessageError("runtimeVersionMismatch")
+                metadata["runtime"] = runtime_record(version, executable)
+                validator = GeneratedContractValidator(schema_dir)
+                metadata["surfaceClassification"] = validate_capture_contract(capture, validator)
+            artifact, success = normalize_delegation_capture(capture)
+        except ContractMessageError as error:
+            artifact = {"fixtureSchemaVersion": 1, "outcome": {"failure": error.category, "success": False}}
+            if error.category == "unknownSurfaceClassification" and error.method is not None:
+                artifact["diagnostics"] = [{"kind": "unknownProtocolMethod", "method": error.method}]
+            success = False
+    write_json(output, artifact)
+    return success
+
+
 def normalize_controls_capture(capture: dict[str, object]) -> tuple[dict[str, object], bool]:
     metadata = capture.get("runMetadata")
     messages = capture.get("messages")
@@ -1597,6 +1781,9 @@ def build_parser() -> argparse.ArgumentParser:
     normalize_parser = subparsers.add_parser("normalize-turn")
     normalize_parser.add_argument("--input", required=True, type=Path)
     normalize_parser.add_argument("--output", required=True, type=Path)
+    delegation_parser = subparsers.add_parser("normalize-delegation")
+    delegation_parser.add_argument("--input", required=True, type=Path)
+    delegation_parser.add_argument("--output", required=True, type=Path)
     controls_parser = subparsers.add_parser("normalize-controls")
     controls_parser.add_argument("--input", required=True, type=Path)
     controls_parser.add_argument("--output", required=True, type=Path)
@@ -1621,6 +1808,8 @@ def main() -> int:
         initialize(arguments.output)
     elif arguments.command == "normalize-turn":
         return 0 if normalize_turn_file(arguments.input, arguments.output) else 1
+    elif arguments.command == "normalize-delegation":
+        return 0 if normalize_delegation_file(arguments.input, arguments.output) else 1
     elif arguments.command == "normalize-controls":
         return 0 if normalize_controls_file(arguments.input, arguments.output) else 1
     elif arguments.command == "live-turn":

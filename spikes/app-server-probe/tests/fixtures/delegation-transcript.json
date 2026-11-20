@@ -1,0 +1,14 @@
+{
+  "runMetadata": {
+    "contract": {"stableManifestSha256": "86d780e116e5d176752ec0065b55e81267c517b1b71423e22fa4af4a67357118"},
+    "runtime": {"cliVersion": "codex-cli 0.170.0"}
+  },
+  "messages": [
+    {"direction": "serverToClient", "message": {"method": "item/completed", "params": {"completedAtMs": 1, "threadId": "root-source", "turnId": "root-turn", "item": {"id": "spawn-alpha", "type": "collabAgentToolCall", "tool": "spawnAgent", "status": "completed", "senderThreadId": "root-source", "receiverThreadIds": ["child-alpha"], "prompt": "Read alpha.txt only.", "model": null, "reasoningEffort": null, "agentsStates": {"child-alpha": {"status": "completed", "message": null}}}}}},
+    {"direction": "serverToClient", "message": {"method": "item/completed", "params": {"completedAtMs": 2, "threadId": "root-source", "turnId": "root-turn", "item": {"id": "spawn-beta", "type": "collabAgentToolCall", "tool": "spawnAgent", "status": "completed", "senderThreadId": "root-source", "receiverThreadIds": ["child-beta"], "prompt": null, "model": null, "reasoningEffort": null, "agentsStates": {"child-beta": {"status": "interrupted", "message": null}}}}}},
+    {"direction": "serverToClient", "message": {"method": "item/completed", "params": {"completedAtMs": 3, "threadId": "root-source", "turnId": "root-turn", "item": {"id": "activity-alpha", "type": "subAgentActivity", "kind": "completed", "agentThreadId": "child-alpha", "agentPath": "root/alpha", "model": null, "reasoningEffort": null}}}},
+    {"direction": "serverToClient", "message": {"method": "item/completed", "params": {"completedAtMs": 4, "threadId": "root-source", "turnId": "root-turn", "item": {"id": "activity-beta", "type": "subAgentActivity", "kind": "interrupted", "agentThreadId": "child-beta", "agentPath": "root/beta", "model": null, "reasoningEffort": null}}}},
+    {"direction": "serverToClient", "message": {"method": "turn/completed", "params": {"threadId": "child-alpha", "turn": {"id": "alpha-turn", "items": [], "status": "completed"}}}},
+    {"direction": "serverToClient", "message": {"method": "turn/completed", "params": {"threadId": "child-beta", "turn": {"id": "beta-turn", "items": [], "status": "interrupted"}}}}
+  ]
+}

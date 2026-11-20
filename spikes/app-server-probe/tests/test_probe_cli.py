@@ -14,6 +14,7 @@ PROBE = PROBE_ROOT / "probe.py"
 SUCCESSFUL_TURN = PROBE_ROOT / "tests" / "fixtures" / "successful-turn-transcript.json"
 EQUIVALENT_TURN = PROBE_ROOT / "tests" / "fixtures" / "equivalent-turn-transcript.json"
 ISSUE3_EVENTS = PROBE_ROOT / "tests" / "fixtures" / "issue3-events.json"
+DELEGATION_TRANSCRIPT = PROBE_ROOT / "tests" / "fixtures" / "delegation-transcript.json"
 
 PROBE_SPEC = importlib.util.spec_from_file_location("orbita_m0_probe", PROBE)
 assert PROBE_SPEC is not None and PROBE_SPEC.loader is not None
@@ -587,6 +588,174 @@ class ProbeCliTests(unittest.TestCase):
         self.assertNotIn("authorization", serialized.lower())
         self.assertLessEqual(len(result["diagnostics"]), 16)
         self.assertEqual(result["diagnostics"][0]["method"], "future/credentialEvent")
+
+    def test_normalize_delegation_projects_two_direct_children_and_explicit_missing_assignment(self) -> None:
+        capture = {
+            "runMetadata": {"runtime": {"cliVersion": "codex-cli 0.170.0"}},
+            "messages": [
+                {
+                    "direction": "serverToClient",
+                    "message": {
+                        "method": "item/completed",
+                        "params": {
+                            "threadId": "root-source",
+                            "turnId": "root-turn",
+                            "item": {
+                                "id": "spawn-alpha",
+                                "type": "collabAgentToolCall",
+                                "tool": "spawnAgent",
+                                "status": "completed",
+                                "senderThreadId": "root-source",
+                                "receiverThreadIds": ["child-alpha"],
+                                "prompt": "Read alpha.txt only.",
+                                "model": None,
+                                "reasoningEffort": None,
+                                "agentsStates": {"child-alpha": {"status": "completed", "message": None}},
+                            },
+                        },
+                    },
+                },
+                {
+                    "direction": "serverToClient",
+                    "message": {
+                        "method": "item/completed",
+                        "params": {
+                            "threadId": "root-source",
+                            "turnId": "root-turn",
+                            "item": {
+                                "id": "spawn-beta",
+                                "type": "collabAgentToolCall",
+                                "tool": "spawnAgent",
+                                "status": "completed",
+                                "senderThreadId": "root-source",
+                                "receiverThreadIds": ["child-beta"],
+                                "prompt": None,
+                                "model": None,
+                                "reasoningEffort": None,
+                                "agentsStates": {"child-beta": {"status": "interrupted", "message": None}},
+                            },
+                        },
+                    },
+                },
+                {
+                    "direction": "serverToClient",
+                    "message": {
+                        "method": "item/completed",
+                        "params": {
+                            "threadId": "root-source",
+                            "turnId": "root-turn",
+                            "item": {
+                                "id": "activity-alpha",
+                                "type": "subAgentActivity",
+                                "kind": "completed",
+                                "agentThreadId": "child-alpha",
+                                "agentPath": "root/alpha",
+                                "model": None,
+                                "reasoningEffort": None,
+                            },
+                        },
+                    },
+                },
+                {
+                    "direction": "serverToClient",
+                    "message": {
+                        "method": "item/completed",
+                        "params": {
+                            "threadId": "root-source",
+                            "turnId": "root-turn",
+                            "item": {
+                                "id": "activity-beta",
+                                "type": "subAgentActivity",
+                                "kind": "interrupted",
+                                "agentThreadId": "child-beta",
+                                "agentPath": "root/beta",
+                                "model": None,
+                                "reasoningEffort": None,
+                            },
+                        },
+                    },
+                },
+                {
+                    "direction": "serverToClient",
+                    "message": {"method": "turn/completed", "params": {"threadId": "child-alpha", "turn": {"id": "alpha-turn", "items": [], "status": "completed"}}},
+                },
+                {
+                    "direction": "serverToClient",
+                    "message": {"method": "turn/completed", "params": {"threadId": "child-beta", "turn": {"id": "beta-turn", "items": [], "status": "interrupted"}}},
+                },
+            ],
+        }
+
+        artifact, success = PROBE_MODULE.normalize_delegation_capture(capture)
+
+        self.assertTrue(success)
+        self.assertEqual(artifact["outcome"], {"childCount": 2, "success": True})
+        self.assertEqual(artifact["children"][0]["assignment"], "Read alpha.txt only.")
+        self.assertEqual(artifact["children"][0]["assignmentClassification"], "directly observed")
+        self.assertIsNone(artifact["children"][1]["assignment"])
+        self.assertEqual(artifact["children"][1]["assignmentClassification"], "unavailable")
+        self.assertTrue(artifact["delegation"]["unavailableDetailFallbackVerified"])
+        self.assertNotIn("root-source", json.dumps(artifact))
+        self.assertNotIn("child-alpha", json.dumps(artifact))
+
+    def test_normalize_delegation_fails_closed_without_direct_parent_edge(self) -> None:
+        artifact, success = PROBE_MODULE.normalize_delegation_capture(
+            {
+                "runMetadata": {"runtime": {"cliVersion": "codex-cli 0.170.0"}},
+                "messages": [
+                    {
+                        "direction": "serverToClient",
+                        "message": {
+                            "method": "item/completed",
+                            "params": {
+                                "threadId": "root-source",
+                                "turnId": "root-turn",
+                                "item": {
+                                    "id": "spawn-without-receiver",
+                                    "type": "collabAgentToolCall",
+                                    "tool": "spawnAgent",
+                                    "status": "failed",
+                                    "senderThreadId": "root-source",
+                                    "receiverThreadIds": [],
+                                    "prompt": "Do not infer a child.",
+                                    "model": None,
+                                    "reasoningEffort": None,
+                                    "agentsStates": {},
+                                },
+                            },
+                        },
+                    }
+                ],
+            }
+        )
+
+        self.assertFalse(success)
+        self.assertEqual(artifact["outcome"], {"failure": "missingDirectParentEdge", "success": False})
+
+    def test_normalize_delegation_validates_pinned_schema_before_projecting_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "delegation.json"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(PROBE),
+                    "normalize-delegation",
+                    "--input",
+                    str(DELEGATION_TRANSCRIPT),
+                    "--output",
+                    str(output),
+                ],
+                cwd=PROBE_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            artifact = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(artifact["outcome"], {"childCount": 2, "success": True})
+        self.assertEqual(artifact["surfaceClassification"]["item/completed"], "stable")
+        self.assertEqual(artifact["surfaceClassification"]["turn/completed"], "stable")
 
 
 if __name__ == "__main__":
