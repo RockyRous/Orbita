@@ -32,7 +32,12 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 .chat-empty h2 { margin: 0 0 9px; font-size: 21px; font-weight: 630; }
 .chat-empty p, .tracker-empty p, .workflow p { color: #8d98ac; font-size: 13px; line-height: 1.55; margin: 0; }
 .honesty { color: #c2a675 !important; margin-top: 15px !important; }
+.result-card { margin-top: 18px; padding: 13px; text-align: left; border: 1px solid #37445e; border-radius: 9px; background: #181f2c; }
+.result-card strong { color: #b8c4ff; font-size: 12px; }
+.result-card p { margin-top: 8px; color: #e1e6f0; white-space: pre-wrap; }
 .composer { margin: 0 24px 22px; border: 1px solid #303b50; background: #1a202c; border-radius: 10px; overflow: hidden; }
+.project-path { width: 100%; border: 0; border-bottom: 1px solid #2b3548; outline: 0; background: #161c27; color: #dce3f2; padding: 10px 13px; font-size: 12px; }
+.project-path::placeholder { color: #788399; }
 .composer textarea { width: 100%; resize: none; border: 0; outline: 0; background: transparent; color: #e5eaf5; padding: 13px; }
 .composer textarea::placeholder { color: #788399; }
 .composer-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #2b3548; padding: 8px 10px 8px 13px; color: #7f8a9e; font-size: 11px; }

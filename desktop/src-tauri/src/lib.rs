@@ -30,13 +30,29 @@ struct ShellState {
 struct RuntimeProcess {
     child: Child,
     stdin: ChildStdin,
-    _events: mpsc::Receiver<Result<String, String>>,
+    events: mpsc::Receiver<Result<String, String>>,
     _stderr: Arc<Mutex<VecDeque<String>>>,
 }
 
 #[derive(Default)]
 struct AppState {
     runtime: Mutex<Option<RuntimeProcess>>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StartRootTaskInput {
+    project_path: String,
+    instruction: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RootTurnResult {
+    thread_id: String,
+    turn_id: String,
+    status: String,
+    assistant_text: Option<String>,
 }
 
 fn find_codex_launcher(path_value: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
@@ -159,7 +175,32 @@ fn initialize_process(native: &Path) -> Result<RuntimeProcess, String> {
         return Err("Codex App Server не подтвердил initialize.".to_owned());
     }
     if let Err(error) = send_json(&mut stdin, &json!({"method":"initialized"})) { let _ = child.kill(); return Err(error); }
-    Ok(RuntimeProcess { child, stdin, _events: events, _stderr: stderr_buffer })
+    Ok(RuntimeProcess { child, stdin, events, _stderr: stderr_buffer })
+}
+
+fn receive_json(runtime: &RuntimeProcess, timeout: Duration) -> Result<Value, String> {
+    let line = runtime.events.recv_timeout(timeout)
+        .map_err(|_| "Codex App Server не прислал ожидаемое событие вовремя.".to_owned())??;
+    serde_json::from_str(&line).map_err(|_| "Codex App Server вернул невалидный JSON.".to_owned())
+}
+
+fn wait_response(runtime: &RuntimeProcess, request_id: &str, timeout: Duration) -> Result<Value, String> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        let remaining = deadline.checked_duration_since(std::time::Instant::now())
+            .ok_or("Codex App Server не ответил вовремя.".to_owned())?;
+        let message = receive_json(runtime, remaining)?;
+        if message.get("id") == Some(&Value::String(request_id.to_owned())) {
+            if message.get("result").is_some() { return Ok(message); }
+            return Err("Codex App Server отклонил запрос.".to_owned());
+        }
+    }
+}
+
+fn string_at(value: &Value, path: &[&str]) -> Option<String> {
+    let mut current = value;
+    for key in path { current = current.get(*key)?; }
+    current.as_str().map(ToOwned::to_owned)
 }
 
 #[tauri::command]
@@ -193,11 +234,65 @@ fn stop_runtime(state: State<'_, AppState>) -> Result<ShellState, String> {
     Ok(ShellState { phase: "compatible".to_owned(), message: "Codex App Server остановлен.".to_owned(), executable_path: None, native_executable_path: None, detected_version: Some(PINNED_CODEX_VERSION.to_owned()) })
 }
 
+#[tauri::command]
+fn start_root_task(input: StartRootTaskInput, state: State<'_, AppState>) -> Result<RootTurnResult, String> {
+    let instruction = input.instruction.trim();
+    if instruction.is_empty() { return Err("Введите инструкцию для Codex.".to_owned()); }
+    let project = fs::canonicalize(input.project_path.trim())
+        .map_err(|_| "Папка проекта не найдена.".to_owned())?;
+    if !project.is_dir() { return Err("Укажите папку проекта, а не файл.".to_owned()); }
+    let mut guard = state.runtime.lock().map_err(|_| "Не удалось получить состояние runtime.".to_owned())?;
+    let runtime = guard.as_mut().ok_or("Сначала подключите Codex App Server.".to_owned())?;
+    if runtime.child.try_wait().map_err(|error| error.to_string())?.is_some() {
+        *guard = None;
+        return Err("Codex App Server завершился; подключите его заново.".to_owned());
+    }
+
+    send_json(&mut runtime.stdin, &json!({
+        "id":"orbita-thread-start-1", "method":"thread/start",
+        "params":{"approvalPolicy":"never", "cwd":project, "ephemeral":true, "sandbox":"read-only"}
+    }))?;
+    let thread_response = wait_response(runtime, "orbita-thread-start-1", INITIALIZE_TIMEOUT)?;
+    let thread_id = string_at(&thread_response, &["result", "thread", "id"])
+        .ok_or("Codex не вернул identity новой задачи.".to_owned())?;
+    send_json(&mut runtime.stdin, &json!({
+        "id":"orbita-turn-start-1", "method":"turn/start",
+        "params":{"threadId":thread_id, "input":[{"type":"text", "text":instruction, "text_elements":[]}]}
+    }))?;
+    let turn_response = wait_response(runtime, "orbita-turn-start-1", INITIALIZE_TIMEOUT)?;
+    let turn_id = string_at(&turn_response, &["result", "turn", "id"])
+        .ok_or("Codex не вернул identity turn.".to_owned())?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(120);
+    let mut assistant_text = None;
+    loop {
+        let remaining = deadline.checked_duration_since(std::time::Instant::now())
+            .ok_or("Turn не завершился за 120 секунд; Orbita не считает его успешным.".to_owned())?;
+        let message = receive_json(runtime, remaining)?;
+        let params = message.get("params");
+        let matching = params.and_then(|params| params.get("threadId")).and_then(Value::as_str) == Some(thread_id.as_str())
+            && (params.and_then(|params| params.get("turnId")).and_then(Value::as_str) == Some(turn_id.as_str())
+                || params.and_then(|params| params.get("turn")).and_then(|turn| turn.get("id")).and_then(Value::as_str) == Some(turn_id.as_str()));
+        if !matching { continue; }
+        if message.get("method").and_then(Value::as_str) == Some("item/completed") {
+            if let Some(item) = params.and_then(|params| params.get("item")) {
+                if item.get("type").and_then(Value::as_str) == Some("agentMessage") {
+                    assistant_text = item.get("text").and_then(Value::as_str).map(ToOwned::to_owned);
+                }
+            }
+        }
+        if message.get("method").and_then(Value::as_str) == Some("turn/completed") {
+            let status = params.and_then(|params| params.get("turn")).and_then(|turn| turn.get("status")).and_then(Value::as_str)
+                .ok_or("Codex завершил turn без статуса.".to_owned())?.to_owned();
+            return Ok(RootTurnResult { thread_id, turn_id, status, assistant_text });
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
-        .invoke_handler(tauri::generate_handler![inspect_runtime, connect_runtime, stop_runtime])
+        .invoke_handler(tauri::generate_handler![inspect_runtime, connect_runtime, stop_runtime, start_root_task])
         .run(tauri::generate_context!())
         .expect("error while running Orbita");
 }
