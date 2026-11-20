@@ -1,0 +1,19 @@
+{
+  "fixture": "live-controls-normalized.json",
+  "runtime": "codex-cli 0.170.0",
+  "rootThread": "<THREAD_1>",
+  "outcome": {
+    "success": true,
+    "sameRootThread": true,
+    "followUpObserved": true,
+    "interruptResponseObserved": true,
+    "interruptedTerminalObserved": true,
+    "lateEventObserved": false
+  },
+  "timeline": [
+    {"title": "Root turn completed", "detail": "A pinned root turn reached an authoritative completed outcome.", "kind": "root"},
+    {"title": "Follow-up completed", "detail": "A distinct follow-up turn completed on the same root thread.", "kind": "follow-up"},
+    {"title": "Interrupt confirmed", "detail": "A correlated turn/interrupt response and interrupted terminal outcome were observed.", "kind": "interrupt"},
+    {"title": "No late event observed", "detail": "This is an observation for the pinned run, not a universal runtime guarantee.", "kind": "limit"}
+  ]
+}

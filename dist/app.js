@@ -1,9 +1,4 @@
-const timeline = [
-  { time: "10:12:04", title: "Root task started", detail: "thread/start created <THREAD_1> in the pinned public App Server contract." },
-  { time: "10:12:05", title: "Turn accepted", detail: "turn/start returned a correlated source turn and the observer began collecting evidence." },
-  { time: "10:12:11", title: "Source outcome observed", detail: "turn/completed reported a completed root turn. No completion was inferred from silence." },
-  { time: "10:13:01", title: "Follow-up evidence available", detail: "A second turn completed on the same root thread. Interrupt support is proven separately." }
-];
+let timeline = [];
 
 const timelineElement = document.querySelector("#timeline");
 const renderTimeline = () => {
@@ -20,7 +15,25 @@ const renderTimeline = () => {
   }));
 };
 
-renderTimeline();
+const loadFixtureProjection = async () => {
+  try {
+    const response = await fetch("./data/root-task-observer.json");
+    if (!response.ok) throw new Error("fixture unavailable");
+    const projection = await response.json();
+    timeline = projection.timeline.map((event, index) => ({
+      time: `evidence ${index + 1}`,
+      title: event.title,
+      detail: event.detail
+    }));
+    document.querySelector(".task-meta code").textContent = projection.rootThread;
+    document.querySelector(".runtime-pill").firstChild.textContent = `${projection.runtime} `;
+  } catch {
+    timeline = [{ time: "gap", title: "Fixture projection unavailable", detail: "The observer cannot infer source activity while its sanitized projection is unavailable." }];
+  }
+  renderTimeline();
+};
+
+loadFixtureProjection();
 
 document.querySelector("#follow-up-form").addEventListener("submit", (event) => {
   event.preventDefault();
