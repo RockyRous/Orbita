@@ -1,0 +1,40 @@
+{
+  "messages": [
+    {
+      "direction": "serverToClient",
+      "message": {
+        "method": "serverRequest/resolved",
+        "params": {
+          "requestId": "<REQUEST_OLD>",
+          "threadId": "<THREAD_OLD>"
+        }
+      }
+    },
+    {
+      "direction": "serverToClient",
+      "message": {
+        "id": "<REQUEST_CURRENT>",
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+          "command": "echo ORBITA_APPROVAL_SENTINEL",
+          "cwd": "<DISPOSABLE_PROJECT>",
+          "itemId": "<ITEM_CURRENT>",
+          "kind": "command",
+          "startedAtMs": 0,
+          "threadId": "<THREAD_CURRENT>",
+          "turnId": "<TURN_CURRENT>"
+        }
+      }
+    },
+    {
+      "direction": "serverToClient",
+      "message": {
+        "method": "serverRequest/resolved",
+        "params": {
+          "requestId": "<REQUEST_CURRENT>",
+          "threadId": "<THREAD_WRONG>"
+        }
+      }
+    }
+  ]
+}

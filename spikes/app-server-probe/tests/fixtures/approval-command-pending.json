@@ -1,0 +1,21 @@
+{
+  "messages": [
+    {
+      "direction": "serverToClient",
+      "message": {
+        "id": "<REQUEST_1>",
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+          "command": "echo ORBITA_APPROVAL_SENTINEL",
+          "cwd": "<DISPOSABLE_PROJECT>",
+          "itemId": "<ITEM_1>",
+          "kind": "command",
+          "reason": "synthetic approval test",
+          "startedAtMs": 0,
+          "threadId": "<THREAD_1>",
+          "turnId": "<TURN_1>"
+        }
+      }
+    }
+  ]
+}
