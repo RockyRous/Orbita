@@ -83,6 +83,67 @@ class ApprovalLiveRunnerTests(unittest.TestCase):
                 "turn-1",
             )
 
+    def test_success_requires_a_complete_observed_accept_round_trip(self) -> None:
+        self.assertIsNone(
+            self.runner.classify_outcome(
+                approval_seen=True,
+                decision="accept",
+                resolution_seen=True,
+                sentinel_seen=True,
+                terminal_status="completed",
+            )
+        )
+        self.assertEqual(
+            self.runner.classify_outcome(
+                approval_seen=False,
+                decision=None,
+                resolution_seen=False,
+                sentinel_seen=False,
+                terminal_status="failed",
+            ),
+            "approvalNotObservedBeforeTerminal",
+        )
+        self.assertEqual(
+            self.runner.classify_outcome(
+                approval_seen=True,
+                decision="accept",
+                resolution_seen=True,
+                sentinel_seen=True,
+                terminal_status="failed",
+            ),
+            "terminalStatusNotCompleted",
+        )
+
+    def test_decline_is_successful_only_when_it_resolves_without_the_sentinel_and_completes(self) -> None:
+        self.assertIsNone(
+            self.runner.classify_outcome(
+                approval_seen=True,
+                decision="decline",
+                resolution_seen=True,
+                sentinel_seen=False,
+                terminal_status="completed",
+            )
+        )
+        self.assertEqual(
+            self.runner.classify_outcome(
+                approval_seen=True,
+                decision="decline",
+                resolution_seen=True,
+                sentinel_seen=True,
+                terminal_status="completed",
+            ),
+            "declinedCommandExecuted",
+        )
+
+    def test_controlled_cleanup_retries_windows_file_locks_once_process_has_stopped(self) -> None:
+        with patch.object(self.runner.shutil, "rmtree", side_effect=[PermissionError(), PermissionError(), None]) as remove:
+            with patch.object(self.runner.time, "sleep") as sleep:
+                removed = self.runner._remove_disposable_directory(Path("C:/disposable/isolated-codex-home"))
+
+        self.assertTrue(removed)
+        self.assertEqual(remove.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

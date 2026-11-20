@@ -9,6 +9,7 @@ by importing this module or running its offline unit tests.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import queue
@@ -254,6 +255,61 @@ def _sanitized_result(
     }
 
 
+def classify_outcome(
+    *, approval_seen: bool, decision: str | None, resolution_seen: bool, sentinel_seen: bool,
+    terminal_status: str | None,
+) -> str | None:
+    """Return a truthful bounded failure category, or ``None`` for this slice's success."""
+    if not approval_seen:
+        return "approvalNotObservedBeforeTerminal" if terminal_status is not None else "deadlineBeforeApproval"
+    if decision not in {"accept", "decline"}:
+        return "operatorDecisionRequired"
+    if not resolution_seen:
+        return "resolutionNotObserved"
+    if terminal_status is None:
+        return "missingTerminalOutcome"
+    if terminal_status != "completed":
+        return "terminalStatusNotCompleted"
+    if decision == "accept" and not sentinel_seen:
+        return "acceptSentinelNotObserved"
+    if decision == "decline" and sentinel_seen:
+        return "declinedCommandExecuted"
+    return None
+
+
+def _remove_disposable_directory(path: Path) -> bool:
+    """Windows may release Codex SQLite handles shortly after process exit."""
+    for attempt in range(50):
+        try:
+            shutil.rmtree(path)
+            return True
+        except FileNotFoundError:
+            return True
+        except PermissionError:
+            if attempt == 49:
+                return False
+            time.sleep(0.1)
+    return False
+
+
+def _stop_process(process: subprocess.Popen[str]) -> None:
+    if process.stdin is not None:
+        process.stdin.close()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+    if process.stdout is not None:
+        process.stdout.close()
+    if process.stderr is not None:
+        process.stderr.close()
+
+
 def _write_sanitized_output(path: Path, artifact: dict[str, object]) -> None:
     serialized = json.dumps(artifact, indent=2, sort_keys=True) + "\n"
     forbidden = re.compile(r"bearer\s+|sk-[A-Za-z0-9_-]{8,}|[A-Za-z]:\\(?:Users|python)\\|/home/", re.IGNORECASE)
@@ -272,6 +328,7 @@ def run_live_approval(output: Path, timeout_seconds: int) -> bool:
     terminal_status: str | None = None
     failure: str | None = None
     process: subprocess.Popen[str] | None = None
+    root: Path | None = None
     try:
         executable = shutil.which("codex")
         if executable is None:
@@ -279,8 +336,8 @@ def run_live_approval(output: Path, timeout_seconds: int) -> bool:
         version = subprocess.run([executable, "--version"], text=True, capture_output=True, check=True).stdout.strip()
         if version != PINNED_VERSION:
             raise LiveApprovalFailure("runtimeVersionMismatch")
-        with tempfile.TemporaryDirectory(prefix="orbita-approval-live-") as temp_dir:
-            root = Path(temp_dir)
+        root = Path(tempfile.mkdtemp(prefix="orbita-approval-live-"))
+        with contextlib.nullcontext(root):
             schema_dir = root / "stable-schema"
             home = root / "isolated-codex-home"
             project = root / "read-only-project"
@@ -380,27 +437,32 @@ def run_live_approval(output: Path, timeout_seconds: int) -> bool:
                             raise LiveApprovalFailure("invalidTerminalOutcome")
                         terminal_status = turn["status"]
 
-            if not approval_seen:
-                raise LiveApprovalFailure("approvalNotObserved")
-            if decision == "accept" and (not sentinel_seen or terminal_status != "completed"):
-                raise LiveApprovalFailure("acceptOutcomeNotObserved")
-            if decision == "decline" and sentinel_seen:
-                raise LiveApprovalFailure("declinedCommandExecuted")
+            outcome_failure = classify_outcome(
+                approval_seen=approval_seen,
+                decision=decision,
+                resolution_seen=resolution_seen,
+                sentinel_seen=sentinel_seen,
+                terminal_status=terminal_status,
+            )
+            if outcome_failure is not None:
+                raise LiveApprovalFailure(outcome_failure)
     except (LiveApprovalFailure, subprocess.CalledProcessError) as error:
         failure = error.args[0] if isinstance(error, LiveApprovalFailure) else "subprocessFailed"
+        if failure == "deadlineExceeded":
+            classified = classify_outcome(
+                approval_seen=approval_seen,
+                decision=decision,
+                resolution_seen=resolution_seen,
+                sentinel_seen=sentinel_seen,
+                terminal_status=terminal_status,
+            )
+            if classified is not None:
+                failure = classified
     finally:
         if process is not None:
-            if process.stdin is not None:
-                process.stdin.close()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.terminate()
-                process.wait(timeout=5)
-            if process.stdout is not None:
-                process.stdout.close()
-            if process.stderr is not None:
-                process.stderr.close()
+            _stop_process(process)
+        if root is not None and not _remove_disposable_directory(root) and failure is None:
+            failure = "disposableCleanupFailed"
         _write_sanitized_output(output, _sanitized_result(
             decision=decision, approval_seen=approval_seen, resolution_seen=resolution_seen,
             sentinel_seen=sentinel_seen, terminal_status=terminal_status, failure=failure,
