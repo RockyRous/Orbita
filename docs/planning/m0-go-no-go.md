@@ -14,7 +14,7 @@ The assessment is pinned to `codex-cli 0.170.0`, the native executable digest `8
 | Follow-up and interrupt | Reviewed `live-controls.json` and normalized artifact prove same-root follow-up and correlated interruption. | Directly observed for this pin. |
 | Delegation schema/projection | Stable contract research plus offline normalizer and failure diagnostics; live attempts did not establish complete two-child hierarchy. | Ambiguous/unavailable for required hierarchy fields. |
 | Approval/attention | Contract research and offline normalization exist; no approved live request/response evidence. | Unavailable. |
-| Continuity/recovery | Candidate stable read/history surfaces and offline replay/gap work exist; no restart/reconnect live fixture. | Untested. |
+| Continuity/recovery | Candidate stable read/history surfaces and offline replay/gap work exist; a bounded reconnect probe returned no source root identity and preserved an explicit gap. | Unavailable for recovery; safe gap fallback observed. |
 | Retention/diagnostics | Offline sanitization and bounded-buffer preparation exist; representative live measurements remain incomplete. | Not a product retention decision. |
 
 Exact implementation/evidence commits currently include:

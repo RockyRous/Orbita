@@ -47,6 +47,20 @@ This is a candidate, not confirmed reconnect behavior: no inspected source guara
 
 ## Least-privilege live recovery scenario
 
+## Live observation: recovery unavailable, gap preserved
+
+The bounded fresh-connection recovery probe ran against the pinned runtime with
+an isolated disposable project, a no-tool root sentinel, and only the public
+read methods described above after client reconnect. It did not obtain a source
+root identity before its bounded deadline. It therefore wrote the sanitized
+result [`live-recovery.json`](../../spikes/app-server-probe/fixtures/live-recovery.json)
+with `recoveryUnavailable`, no roots, and an `unknown` outcome.
+
+This proves only the safe fallback: a missing recovery response becomes an
+explicit gap rather than an inferred idle, completed, or recreated root task.
+It does not prove client reconnect, history recovery, pagination, or background
+continuation. Recovery remains unavailable for this exact profile.
+
 This is a proposed future experiment, not executed work.
 
 1. Pin the executable, stable-only contract digest, effective feature list, and exact `CODEX_HOME`; use a disposable Git repo with synthetic files only.
