@@ -76,6 +76,31 @@ long no-tools turn which it interrupts only after its matching `turn/started`.
 It requires both the correlated interrupt response and a matching
 `turn/completed` with `status: "interrupted"`.
 
+## Issue #5 human-gated command approval runner
+
+`approval_live_runner.py` is a separate, explicitly opt-in experiment for one
+ordinary command approval. It is not run by the offline suite. It creates an
+isolated disposable Git project and `CODEX_HOME`, uses `approvalPolicy:
+"on-request"` with reviewer `user`, read-only sandboxing, and disabled network
+access. The prompt permits only `echo ORBITA_APPROVAL_ACCEPTED`; any other
+server request, policy/session decision, command, non-empty reason, network
+context, or mismatched source correlation fails closed.
+
+Run it only when a human is present to read the sanitized context and type the
+one-shot decision after it is displayed:
+
+```powershell
+python -B spikes/app-server-probe/approval_live_runner.py --confirm-live-approval --output <sanitized-result-path>
+```
+
+The prompt accepts exactly `accept` or `decline`; Enter aborts. The runner does
+not auto-approve, does not persist raw protocol lines, and stores only a
+sanitized result at the explicit output path. It requires the same request ID,
+thread ID, turn ID, and item context for the approval; a matching
+`serverRequest/resolved`; and a correlated terminal turn event. An accepted
+run additionally requires the fixed sentinel and `completed` terminal status.
+No run result is a compatibility claim until reviewed.
+
 The generated schema tree is deliberately not checked in: version 0.170.0 emits
 808 JSON files. The fixture retains the exact commands, file counts, full-tree
 canonical manifest digests, combined-bundle digests, and surface
