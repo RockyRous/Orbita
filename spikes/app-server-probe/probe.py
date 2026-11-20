@@ -1005,6 +1005,72 @@ def normalize_delegation_file(input_path: Path, output: Path) -> bool:
     return success
 
 
+def delegation_failure_artifact(
+    metadata: dict[str, object], transcript: list[dict[str, object]], failure: str
+) -> dict[str, object]:
+    """Retain only causally useful, alias-only evidence after a live failure."""
+    aliases: dict[str, str] = {}
+    spawn_receivers: list[str] = []
+    activity_children: list[str] = []
+    completed_children: list[str] = []
+    evidence_kinds: set[str] = set()
+
+    def alias(identity: object, *, linked: bool) -> str | None:
+        if not isinstance(identity, str) or not identity:
+            return None
+        if identity not in aliases:
+            prefix = "<CHILD_" if linked else "<UNLINKED_CHILD_"
+            aliases[identity] = f"{prefix}{len(aliases) + 1}>"
+        return aliases[identity]
+
+    for entry in transcript:
+        if not isinstance(entry, dict) or entry.get("direction") != "serverToClient":
+            continue
+        message = entry.get("message")
+        if not isinstance(message, dict):
+            continue
+        params = message.get("params")
+        if not isinstance(params, dict):
+            continue
+        if message.get("method") == "item/completed":
+            item = params.get("item")
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "collabAgentToolCall" and item.get("tool") == "spawnAgent":
+                receivers = item.get("receiverThreadIds")
+                if isinstance(receivers, list):
+                    for receiver in receivers:
+                        child = alias(receiver, linked=True)
+                        if child is not None and child not in spawn_receivers:
+                            spawn_receivers.append(child)
+                    if spawn_receivers:
+                        evidence_kinds.add("spawnReceiver")
+            elif item.get("type") == "subAgentActivity":
+                child = alias(item.get("agentThreadId"), linked=False)
+                if child is not None and child not in activity_children:
+                    activity_children.append(child)
+                    evidence_kinds.add("subAgentActivity")
+        elif message.get("method") == "turn/completed":
+            child = alias(params.get("threadId"), linked=False)
+            if child is not None and child not in completed_children:
+                completed_children.append(child)
+                evidence_kinds.add("childTurnCompleted")
+
+    return {
+        "delegationDiagnostics": {
+            "childTurnCompletedIdentities": completed_children,
+            "evidenceKinds": sorted(evidence_kinds),
+            "spawnReceiverIdentities": spawn_receivers,
+            "subAgentActivityIdentities": activity_children,
+        },
+        "featureProfile": metadata.get("featureProfile", {}),
+        "fixtureSchemaVersion": 1,
+        "outcome": {"failure": failure, "success": False},
+        "probeInputRevision": "live-delegation-v1",
+        "runtime": metadata.get("runtime", {}),
+    }
+
+
 def normalize_controls_capture(capture: dict[str, object]) -> tuple[dict[str, object], bool]:
     metadata = capture.get("runMetadata")
     messages = capture.get("messages")
@@ -1748,7 +1814,7 @@ def live_delegation(output: Path, timeout_seconds: float) -> bool:
                     process.kill()
                     process.wait(timeout=5)
         remove_disposable_directory(temp_root)
-    write_json(output, {"fixtureSchemaVersion": 1, "outcome": {"failure": failure or "unknownFailure", "success": False}, "probeInputRevision": "live-delegation-v1", "runtime": metadata["runtime"]})
+    write_json(output, delegation_failure_artifact(metadata, transcript, failure or "unknownFailure"))
     return False
 
 

@@ -766,6 +766,27 @@ class ProbeCliTests(unittest.TestCase):
         self.assertFalse(success)
         self.assertEqual(artifact["outcome"], {"failure": "missingDirectParentEdge", "success": False})
 
+    def test_delegation_failure_artifact_keeps_only_aliased_correlation_evidence(self) -> None:
+        metadata = {
+            "featureProfile": {"overrides": ["--enable multi_agent_v2"], "sha256": "feature-digest"},
+            "runtime": {"cliVersion": "codex-cli 0.170.0"},
+        }
+        transcript = [
+            {"direction": "serverToClient", "message": {"method": "item/completed", "params": {"item": {"type": "subAgentActivity", "agentThreadId": "child-private", "kind": "completed", "agentPath": "private/path"}}}},
+            {"direction": "serverToClient", "message": {"method": "turn/completed", "params": {"threadId": "child-private", "turn": {"id": "turn-private", "status": "completed"}}}},
+        ]
+
+        artifact = PROBE_MODULE.delegation_failure_artifact(metadata, transcript, "missingDirectParentEdge")
+
+        self.assertEqual(artifact["featureProfile"], metadata["featureProfile"])
+        self.assertEqual(artifact["delegationDiagnostics"]["spawnReceiverIdentities"], [])
+        self.assertEqual(artifact["delegationDiagnostics"]["subAgentActivityIdentities"], ["<UNLINKED_CHILD_1>"])
+        self.assertEqual(artifact["delegationDiagnostics"]["childTurnCompletedIdentities"], ["<UNLINKED_CHILD_1>"])
+        serialized = json.dumps(artifact)
+        self.assertNotIn("child-private", serialized)
+        self.assertNotIn("private/path", serialized)
+        self.assertNotIn("turn-private", serialized)
+
     def test_normalize_delegation_validates_pinned_schema_before_projecting_fixture(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "delegation.json"
