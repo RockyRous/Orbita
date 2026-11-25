@@ -1,6 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
-import type { RuntimeState } from "./types";
+import type { ProjectionEnvelope, RuntimeState } from "./types";
 import "./App.css";
 
 type RootTurnResult = { threadId: string; turnId: string; status: string; assistantText?: string };
@@ -39,7 +39,19 @@ function App() {
     setBusy(true);
     setTurnError(null);
     setTurn(null);
-    try { setTurn(await invoke<RootTurnResult>("start_root_task", { projectPath, instruction })); }
+    let lastSequence = 0;
+    const updates = new Channel<ProjectionEnvelope>((update) => {
+      if (update.sequence <= lastSequence) return;
+      lastSequence = update.sequence;
+      setTurn((current) => {
+        const next = current ?? { threadId: update.rootTaskId, turnId: "", status: "running", assistantText: "" };
+        if (update.kind === "assistantDelta") return { ...next, assistantText: `${next.assistantText ?? ""}${update.text ?? ""}` };
+        if (update.kind === "assistantMessage") return { ...next, assistantText: update.text ?? next.assistantText };
+        if (update.kind === "turnCompleted") return { ...next, status: update.status ?? "unknown" };
+        return next;
+      });
+    });
+    try { setTurn(await invoke<RootTurnResult>("start_root_task", { projectPath, instruction, updates })); }
     catch (error) { setTurnError(String(error)); }
     finally { setBusy(false); }
   }

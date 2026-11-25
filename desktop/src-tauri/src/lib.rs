@@ -10,7 +10,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tauri::State;
+use tauri::{ipc::Channel, State};
 
 const PINNED_CODEX_VERSION: &str = "codex-cli 0.171.0";
 const PINNED_NATIVE_SHA256: &str = "cefea4ffee1fff04983a99c0dda99944d8b380e891e740a28b32f4b815a6e0b7";
@@ -53,6 +53,71 @@ struct RootTurnResult {
     turn_id: String,
     status: String,
     assistant_text: Option<String>,
+}
+
+/// The only live App Server shape exposed to the webview. Protocol JSON stays
+/// in Rust, where it is correlated with the active turn before projection.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct ProjectionEnvelope {
+    sequence: u64,
+    root_task_id: String,
+    kind: String,
+    text: Option<String>,
+    status: Option<String>,
+}
+
+struct RootTurnProjection {
+    sequence: u64,
+    root_task_id: String,
+    thread_id: String,
+    turn_id: String,
+    assistant_text: String,
+}
+
+impl RootTurnProjection {
+    fn new(thread_id: String, turn_id: String) -> Self {
+        Self { root_task_id: thread_id.clone(), thread_id, turn_id, sequence: 0, assistant_text: String::new() }
+    }
+
+    fn emit(&mut self, updates: &Channel<ProjectionEnvelope>, kind: &str, text: Option<String>, status: Option<String>) -> Result<(), String> {
+        self.sequence += 1;
+        updates.send(ProjectionEnvelope { sequence: self.sequence, root_task_id: self.root_task_id.clone(), kind: kind.to_owned(), text, status })
+            .map_err(|error| format!("Could not send chat update: {error}"))
+    }
+
+    fn project(&mut self, message: &Value, updates: &Channel<ProjectionEnvelope>) -> Result<Option<String>, String> {
+        let params = message.get("params");
+        let matching = params.and_then(|value| value.get("threadId")).and_then(Value::as_str) == Some(self.thread_id.as_str())
+            && (params.and_then(|value| value.get("turnId")).and_then(Value::as_str) == Some(self.turn_id.as_str())
+                || params.and_then(|value| value.get("turn")).and_then(|turn| turn.get("id")).and_then(Value::as_str) == Some(self.turn_id.as_str()));
+        if !matching { return Ok(None); }
+        match message.get("method").and_then(Value::as_str) {
+            Some("turn/started") => self.emit(updates, "turnStarted", None, None)?,
+            Some("item/agentMessage/delta") => {
+                if let Some(delta) = params.and_then(|value| value.get("delta")).and_then(Value::as_str) {
+                    self.assistant_text.push_str(delta);
+                    self.emit(updates, "assistantDelta", Some(delta.to_owned()), None)?;
+                }
+            }
+            Some("item/completed") => {
+                if let Some(item) = params.and_then(|value| value.get("item"))
+                    && item.get("type").and_then(Value::as_str) == Some("agentMessage")
+                    && let Some(text) = item.get("text").and_then(Value::as_str) {
+                        self.assistant_text = text.to_owned();
+                        self.emit(updates, "assistantMessage", Some(text.to_owned()), None)?;
+                    }
+            }
+            Some("turn/completed") => {
+                let status = params.and_then(|value| value.get("turn")).and_then(|turn| turn.get("status")).and_then(Value::as_str)
+                    .ok_or("Codex completed a turn without a status.".to_owned())?.to_owned();
+                self.emit(updates, "turnCompleted", None, Some(status.clone()))?;
+                return Ok(Some(status));
+            }
+            _ => {}
+        }
+        Ok(None)
+    }
 }
 
 fn find_codex_launcher(path_value: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
@@ -131,7 +196,9 @@ fn qualified_native() -> Result<(PathBuf, ShellState), ShellState> {
 fn spawn_line_reader<R: Read + Send + 'static>(reader: R, sender: mpsc::SyncSender<Result<String, String>>) {
     thread::spawn(move || {
         for line in BufReader::new(reader).lines() {
-            if sender.try_send(line.map_err(|error| error.to_string())).is_err() { break; }
+            // Backpressure is preferable to silently dropping a protocol line or
+            // abandoning stdout, which could deadlock the App Server child.
+            if sender.send(line.map_err(|error| error.to_string())).is_err() { break; }
         }
     });
 }
@@ -235,7 +302,7 @@ fn stop_runtime(state: State<'_, AppState>) -> Result<ShellState, String> {
 }
 
 #[tauri::command]
-fn start_root_task(input: StartRootTaskInput, state: State<'_, AppState>) -> Result<RootTurnResult, String> {
+fn start_root_task(input: StartRootTaskInput, updates: Channel<ProjectionEnvelope>, state: State<'_, AppState>) -> Result<RootTurnResult, String> {
     let instruction = input.instruction.trim();
     if instruction.is_empty() { return Err("Введите инструкцию для Codex.".to_owned()); }
     let project = fs::canonicalize(input.project_path.trim())
@@ -262,12 +329,18 @@ fn start_root_task(input: StartRootTaskInput, state: State<'_, AppState>) -> Res
     let turn_response = wait_response(runtime, "orbita-turn-start-1", INITIALIZE_TIMEOUT)?;
     let turn_id = string_at(&turn_response, &["result", "turn", "id"])
         .ok_or("Codex не вернул identity turn.".to_owned())?;
+    let mut projection = RootTurnProjection::new(thread_id.clone(), turn_id.clone());
+    projection.emit(&updates, "turnAccepted", None, None)?;
     let deadline = std::time::Instant::now() + Duration::from_secs(120);
     let mut assistant_text = None;
     loop {
         let remaining = deadline.checked_duration_since(std::time::Instant::now())
             .ok_or("Turn не завершился за 120 секунд; Orbita не считает его успешным.".to_owned())?;
         let message = receive_json(runtime, remaining)?;
+        // Projection is deliberately independent from the legacy result adapter:
+        // the channel receives live updates while the invoke result stays a
+        // terminal summary for callers that need it.
+        let _ = projection.project(&message, &updates)?;
         let params = message.get("params");
         let matching = params.and_then(|params| params.get("threadId")).and_then(Value::as_str) == Some(thread_id.as_str())
             && (params.and_then(|params| params.get("turnId")).and_then(Value::as_str) == Some(turn_id.as_str())
@@ -299,7 +372,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{find_codex_launcher, initialize_process, qualified_native, PINNED_CODEX_VERSION, PINNED_NATIVE_SHA256};
+    use super::{find_codex_launcher, initialize_process, qualified_native, ProjectionEnvelope, PINNED_CODEX_VERSION, PINNED_NATIVE_SHA256};
     use std::ffi::OsString;
 
     #[test]
@@ -311,6 +384,22 @@ mod tests {
     #[test]
     fn missing_path_has_no_launcher() {
         assert!(find_codex_launcher(Some(&OsString::from("Z:\\does-not-exist"))).is_none());
+    }
+
+    #[test]
+    fn projection_envelope_serializes_the_public_contract() {
+        let event = ProjectionEnvelope {
+            sequence: 7,
+            root_task_id: "thread-1".to_owned(),
+            kind: "assistantDelta".to_owned(),
+            text: Some("hello".to_owned()),
+            status: None,
+        };
+        let value = serde_json::to_value(event).expect("projection serializes");
+        assert_eq!(value["sequence"], 7);
+        assert_eq!(value["rootTaskId"], "thread-1");
+        assert_eq!(value["kind"], "assistantDelta");
+        assert_eq!(value["text"], "hello");
     }
 
     #[test]

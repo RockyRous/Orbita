@@ -26,6 +26,16 @@ The backend emits an ordered envelope:
 
 The frontend applies strictly increasing sequence numbers. A missing sequence requests a snapshot; it never guesses the skipped state. A projection exposes only runtime state, task/turn/activity/execution/workflow-link records, gaps, supported actions, and typed errors.
 
+### First live root-turn slice
+
+`start_root_task` accepts a Tauri `Channel` named `updates`. Rust, not React,
+correlates the App Server JSONL with the accepted thread and turn and sends
+strictly ordered normalized envelopes: `turnAccepted`, `turnStarted`,
+`assistantDelta`, `assistantMessage`, and `turnCompleted`. The terminal invoke
+result remains a summary for callers that need it; it is not the source of
+live rendering. The child stdout reader applies bounded backpressure instead
+of dropping protocol lines.
+
 ## Control rule
 
 A control is enabled only after a proven pinned protocol round trip, Rust lifecycle validation, positive and negative automated coverage, and UI handling for pending, rejected, failed, and terminal states.
