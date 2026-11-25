@@ -1,10 +1,11 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ProjectionEnvelope, RuntimeState } from "./types";
 import "./App.css";
 
 type RootTurnResult = { threadId: string; turnId: string; status: string; assistantText?: string };
 type ChatEntry = RootTurnResult & { userText: string };
+type SupervisorSnapshot = { connection: "connected" | "disconnected"; activeThreadId?: string; activeTurnId?: string };
 
 const initialRuntime: RuntimeState = {
   phase: "not_checked",
@@ -21,6 +22,19 @@ function App() {
   const [history, setHistory] = useState<ChatEntry[]>([]);
   const [turnError, setTurnError] = useState<string | null>(null);
   const [interruptRequested, setInterruptRequested] = useState(false);
+
+  useEffect(() => {
+    if (runtime.phase !== "connected") return;
+    const timer = window.setInterval(() => {
+      invoke<SupervisorSnapshot>("get_projection").then((snapshot) => {
+        if (snapshot.connection === "disconnected") {
+          setRuntime({ phase: "unavailable", message: "Codex App Server завершился. Подключите его заново." });
+          setInterruptRequested(false);
+        }
+      }).catch(() => undefined);
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [runtime.phase]);
 
   async function inspectRuntime() {
     setBusy(true);

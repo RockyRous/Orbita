@@ -532,7 +532,8 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{find_codex_launcher, initialize_process, qualified_native, ProjectionEnvelope, PINNED_CODEX_VERSION, PINNED_NATIVE_SHA256};
+    use super::{find_codex_launcher, initialize_process, qualified_native, ActiveTurn, ActiveTurnLease, ProjectionEnvelope, PINNED_CODEX_VERSION, PINNED_NATIVE_SHA256};
+    use std::sync::Mutex;
     use std::ffi::OsString;
 
     #[test]
@@ -560,6 +561,13 @@ mod tests {
         assert_eq!(value["rootTaskId"], "thread-1");
         assert_eq!(value["kind"], "assistantDelta");
         assert_eq!(value["text"], "hello");
+    }
+
+    #[test]
+    fn active_turn_lease_clears_the_claim_on_scope_exit() {
+        let active = Mutex::new(Some(ActiveTurn { thread_id: "thread-1".to_owned(), turn_id: "turn-1".to_owned() }));
+        { let _lease = ActiveTurnLease { active_turn: &active }; }
+        assert!(active.lock().expect("test mutex").is_none());
     }
 
     #[test]
