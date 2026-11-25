@@ -18,6 +18,7 @@ function App() {
   const [sentInstruction, setSentInstruction] = useState("");
   const [turn, setTurn] = useState<RootTurnResult | null>(null);
   const [turnError, setTurnError] = useState<string | null>(null);
+  const [interruptRequested, setInterruptRequested] = useState(false);
 
   async function inspectRuntime() {
     setBusy(true);
@@ -39,6 +40,7 @@ function App() {
     if (runtime.phase !== "connected") return;
     setBusy(true);
     setTurnError(null);
+    setInterruptRequested(false);
     setTurn(null);
     setSentInstruction(instruction.trim());
     let lastSequence = 0;
@@ -58,6 +60,16 @@ function App() {
     finally { setBusy(false); }
   }
 
+  async function requestInterrupt() {
+    if (!busy || interruptRequested) return;
+    try {
+      await invoke("request_interrupt");
+      setInterruptRequested(true);
+    } catch (error) {
+      setTurnError(String(error));
+    }
+  }
+
   const canSend = runtime.phase === "connected" && !busy && projectPath.trim() && instruction.trim();
 
   return (
@@ -72,7 +84,7 @@ function App() {
         </section>
       </aside>
       <section className="chat-pane" aria-label="Чат Codex">
-        <header className="topbar"><div><p className="eyebrow">ПРОЕКТ НЕ ВЫБРАН</p><h1>Новая задача</h1></div><div className="topbar-actions"><span className="badge">Нет активного turn</span><button disabled>Прервать</button></div></header>
+        <header className="topbar"><div><p className="eyebrow">ПРОЕКТ НЕ ВЫБРАН</p><h1>Новая задача</h1></div><div className="topbar-actions"><span className="badge">{interruptRequested ? "Запрос на прерывание отправлен" : busy ? "Активный turn" : "Нет активного turn"}</span><button onClick={requestInterrupt} disabled={!busy || interruptRequested}>{interruptRequested ? "Ожидание…" : "Прервать"}</button></div></header>
         {turn ? <div className="chat-transcript" aria-live="polite">
           <article className="chat-message user-message"><span>Вы</span><p>{sentInstruction}</p></article>
           <article className="chat-message assistant-message"><span>Codex {turn.status === "running" ? "печатает…" : `• ${turn.status}`}</span><p>{turn.assistantText || "Ответ готовится…"}</p></article>

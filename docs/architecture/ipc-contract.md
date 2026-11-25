@@ -10,7 +10,7 @@ This is the product boundary for the first Tauri shell. It deliberately contains
 | `select_project` | explicit user intent | selected project or cancellation |
 | `start_root_task` | approved project identity, instruction | accepted root-task identity |
 | `send_follow_up` | root-task identity, instruction | accepted/rejected command result |
-| `interrupt_turn` | root-task identity, active turn identity | accepted/rejected command result |
+| `request_interrupt` | none; Rust uses the active turn it owns | request submitted/rejected |
 | `get_projection` | root-task identity | complete projection snapshot |
 | `stop_runtime` | explicit user intent | lifecycle-valid result |
 
@@ -35,6 +35,13 @@ strictly ordered normalized envelopes: `turnAccepted`, `turnStarted`,
 result remains a summary for callers that need it; it is not the source of
 live rendering. The child stdout reader applies bounded backpressure instead
 of dropping protocol lines.
+
+### Interrupt request
+
+While a root turn is active, `request_interrupt` sends the qualified stable
+`turn/interrupt` request with identities retained by Rust. The UI can state
+only that the request was submitted. It must wait for the matching authoritative
+`turn/completed` projection before rendering an interrupted terminal outcome.
 
 ## Control rule
 

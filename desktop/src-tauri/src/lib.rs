@@ -34,9 +34,16 @@ struct RuntimeProcess {
     _stderr: Arc<Mutex<VecDeque<String>>>,
 }
 
+#[derive(Clone)]
+struct ActiveTurn {
+    thread_id: String,
+    turn_id: String,
+}
+
 #[derive(Default)]
 struct AppState {
-    runtime: Mutex<Option<RuntimeProcess>>,
+    runtime: Arc<Mutex<Option<RuntimeProcess>>>,
+    active_turn: Mutex<Option<ActiveTurn>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -251,6 +258,15 @@ fn receive_json(runtime: &RuntimeProcess, timeout: Duration) -> Result<Value, St
     serde_json::from_str(&line).map_err(|_| "Codex App Server вернул невалидный JSON.".to_owned())
 }
 
+fn poll_json(runtime: &RuntimeProcess, timeout: Duration) -> Result<Option<Value>, String> {
+    match runtime.events.recv_timeout(timeout) {
+        Ok(Ok(line)) => serde_json::from_str(&line).map(Some).map_err(|_| "Codex App Server returned invalid JSON.".to_owned()),
+        Ok(Err(error)) => Err(error),
+        Err(mpsc::RecvTimeoutError::Timeout) => Ok(None),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err("Codex App Server closed its event stream.".to_owned()),
+    }
+}
+
 fn wait_response(runtime: &RuntimeProcess, request_id: &str, timeout: Duration) -> Result<Value, String> {
     let deadline = std::time::Instant::now() + timeout;
     loop {
@@ -302,13 +318,31 @@ fn stop_runtime(state: State<'_, AppState>) -> Result<ShellState, String> {
 }
 
 #[tauri::command]
+fn request_interrupt(state: State<'_, AppState>) -> Result<(), String> {
+    let active = state.active_turn.lock().map_err(|_| "Не удалось получить активный turn.".to_owned())?
+        .clone().ok_or("Нет активного turn для прерывания.".to_owned())?;
+    let mut runtime = state.runtime.lock().map_err(|_| "Не удалось получить состояние runtime.".to_owned())?;
+    let process = runtime.as_mut().ok_or("Codex App Server не подключён.".to_owned())?;
+    if process.child.try_wait().map_err(|error| error.to_string())?.is_some() {
+        *runtime = None;
+        return Err("Codex App Server завершился; подключите его заново.".to_owned());
+    }
+    send_json(&mut process.stdin, &json!({
+        "id":"orbita-turn-interrupt-1", "method":"turn/interrupt",
+        "params":{"threadId":active.thread_id, "turnId":active.turn_id}
+    }))
+}
+
+#[tauri::command]
 fn start_root_task(input: StartRootTaskInput, updates: Channel<ProjectionEnvelope>, state: State<'_, AppState>) -> Result<RootTurnResult, String> {
     let instruction = input.instruction.trim();
     if instruction.is_empty() { return Err("Введите инструкцию для Codex.".to_owned()); }
     let project = fs::canonicalize(input.project_path.trim())
         .map_err(|_| "Папка проекта не найдена.".to_owned())?;
     if !project.is_dir() { return Err("Укажите папку проекта, а не файл.".to_owned()); }
-    let mut guard = state.runtime.lock().map_err(|_| "Не удалось получить состояние runtime.".to_owned())?;
+    let runtime_state = Arc::clone(&state.runtime);
+    let (thread_id, turn_id) = {
+    let mut guard = runtime_state.lock().map_err(|_| "Не удалось получить состояние runtime.".to_owned())?;
     let runtime = guard.as_mut().ok_or("Сначала подключите Codex App Server.".to_owned())?;
     if runtime.child.try_wait().map_err(|error| error.to_string())?.is_some() {
         *guard = None;
@@ -329,6 +363,9 @@ fn start_root_task(input: StartRootTaskInput, updates: Channel<ProjectionEnvelop
     let turn_response = wait_response(runtime, "orbita-turn-start-1", INITIALIZE_TIMEOUT)?;
     let turn_id = string_at(&turn_response, &["result", "turn", "id"])
         .ok_or("Codex не вернул identity turn.".to_owned())?;
+    (thread_id, turn_id)
+    };
+    *state.active_turn.lock().map_err(|_| "Не удалось записать активный turn.".to_owned())? = Some(ActiveTurn { thread_id: thread_id.clone(), turn_id: turn_id.clone() });
     let mut projection = RootTurnProjection::new(thread_id.clone(), turn_id.clone());
     projection.emit(&updates, "turnAccepted", None, None)?;
     let deadline = std::time::Instant::now() + Duration::from_secs(120);
@@ -336,7 +373,12 @@ fn start_root_task(input: StartRootTaskInput, updates: Channel<ProjectionEnvelop
     loop {
         let remaining = deadline.checked_duration_since(std::time::Instant::now())
             .ok_or("Turn не завершился за 120 секунд; Orbita не считает его успешным.".to_owned())?;
-        let message = receive_json(runtime, remaining)?;
+        let message = {
+            let guard = runtime_state.lock().map_err(|_| "Не удалось получить состояние runtime.".to_owned())?;
+            let runtime = guard.as_ref().ok_or("Codex App Server не подключён.".to_owned())?;
+            poll_json(runtime, remaining.min(Duration::from_millis(250)))?
+        };
+        let Some(message) = message else { continue; };
         // Projection is deliberately independent from the legacy result adapter:
         // the channel receives live updates while the invoke result stays a
         // terminal summary for callers that need it.
@@ -356,6 +398,7 @@ fn start_root_task(input: StartRootTaskInput, updates: Channel<ProjectionEnvelop
         if message.get("method").and_then(Value::as_str) == Some("turn/completed") {
             let status = params.and_then(|params| params.get("turn")).and_then(|turn| turn.get("status")).and_then(Value::as_str)
                 .ok_or("Codex завершил turn без статуса.".to_owned())?.to_owned();
+            *state.active_turn.lock().map_err(|_| "Не удалось очистить активный turn.".to_owned())? = None;
             return Ok(RootTurnResult { thread_id, turn_id, status, assistant_text });
         }
     }
@@ -365,7 +408,7 @@ fn start_root_task(input: StartRootTaskInput, updates: Channel<ProjectionEnvelop
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
-        .invoke_handler(tauri::generate_handler![inspect_runtime, connect_runtime, stop_runtime, start_root_task])
+        .invoke_handler(tauri::generate_handler![inspect_runtime, connect_runtime, stop_runtime, request_interrupt, start_root_task])
         .run(tauri::generate_context!())
         .expect("error while running Orbita");
 }
