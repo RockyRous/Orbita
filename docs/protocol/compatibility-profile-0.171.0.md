@@ -25,6 +25,18 @@ This profile is a Windows x64, direct-child, `stdio://` qualification. It does n
 
 The Rust supervisor may qualify this exact tuple and proceed to direct-child App Server initialization. The application must still implement and test process ownership, queues, shutdown, rendering, and lifecycle validation before exposing a live chat control.
 
+## Delegation probe
+
+`fixtures/live-delegation-0.171.0.json` is a sanitized live probe with the
+`multi_agent_v2` feature profile. It observed only an unlinked child-turn
+completion and failed the required direct-parent-edge gate. It did not provide
+a spawn receiver identity or a `subAgentActivity` identity.
+
+Therefore this profile does **not** qualify execution rows, parent/child
+edges, agent roles, assignments, or execution status in Orbita's tracker. The
+tracker must remain empty rather than derive those records from an incomplete
+capture.
+
 ## Fail-closed rule
 
 Any other version, native digest, platform, transport, generated contract, or effective feature profile is incompatible until separately qualified. EOF, timeout, process exit, and silence remain `Disconnected`/`Gap`, never terminal success.
