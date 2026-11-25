@@ -40,6 +40,26 @@ struct ActiveTurn {
     turn_id: String,
 }
 
+struct ActiveTurnLease<'a> {
+    active_turn: &'a Mutex<Option<ActiveTurn>>,
+}
+
+impl Drop for ActiveTurnLease<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.active_turn.lock() {
+            *active = None;
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SupervisorSnapshot {
+    connection: String,
+    active_thread_id: Option<String>,
+    active_turn_id: Option<String>,
+}
+
 #[derive(Default)]
 struct AppState {
     runtime: Arc<Mutex<Option<RuntimeProcess>>>,
@@ -50,6 +70,13 @@ struct AppState {
 #[serde(rename_all = "camelCase")]
 struct StartRootTaskInput {
     project_path: String,
+    instruction: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FollowUpInput {
+    thread_id: String,
     instruction: String,
 }
 
@@ -334,6 +361,33 @@ fn request_interrupt(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_projection(state: State<'_, AppState>) -> Result<SupervisorSnapshot, String> {
+    let connection = {
+        let mut runtime = state.runtime.lock().map_err(|_| "Не удалось получить состояние runtime.".to_owned())?;
+        let disconnected = match runtime.as_mut() {
+            None => true,
+            Some(process) => process.child.try_wait().map_err(|error| error.to_string())?.is_some(),
+        };
+        if disconnected {
+            *runtime = None;
+            "disconnected".to_owned()
+        } else {
+            "connected".to_owned()
+        }
+    };
+    if connection == "disconnected" {
+        *state.active_turn.lock().map_err(|_| "Не удалось очистить активный turn.".to_owned())? = None;
+        return Ok(SupervisorSnapshot { connection, active_thread_id: None, active_turn_id: None });
+    }
+    let active = state.active_turn.lock().map_err(|_| "Не удалось получить активный turn.".to_owned())?.clone();
+    Ok(SupervisorSnapshot {
+        connection,
+        active_thread_id: active.as_ref().map(|turn| turn.thread_id.clone()),
+        active_turn_id: active.map(|turn| turn.turn_id),
+    })
+}
+
+#[tauri::command]
 fn start_root_task(input: StartRootTaskInput, updates: Channel<ProjectionEnvelope>, state: State<'_, AppState>) -> Result<RootTurnResult, String> {
     let instruction = input.instruction.trim();
     if instruction.is_empty() { return Err("Введите инструкцию для Codex.".to_owned()); }
@@ -366,6 +420,7 @@ fn start_root_task(input: StartRootTaskInput, updates: Channel<ProjectionEnvelop
     (thread_id, turn_id)
     };
     *state.active_turn.lock().map_err(|_| "Не удалось записать активный turn.".to_owned())? = Some(ActiveTurn { thread_id: thread_id.clone(), turn_id: turn_id.clone() });
+    let _active_turn_lease = ActiveTurnLease { active_turn: &state.active_turn };
     let mut projection = RootTurnProjection::new(thread_id.clone(), turn_id.clone());
     projection.emit(&updates, "turnAccepted", None, None)?;
     let deadline = std::time::Instant::now() + Duration::from_secs(120);
@@ -404,11 +459,73 @@ fn start_root_task(input: StartRootTaskInput, updates: Channel<ProjectionEnvelop
     }
 }
 
+#[tauri::command]
+fn send_follow_up(input: FollowUpInput, updates: Channel<ProjectionEnvelope>, state: State<'_, AppState>) -> Result<RootTurnResult, String> {
+    let instruction = input.instruction.trim();
+    let thread_id = input.thread_id.trim().to_owned();
+    if instruction.is_empty() { return Err("Введите сообщение для Codex.".to_owned()); }
+    if thread_id.is_empty() { return Err("Не указан root chat для follow-up.".to_owned()); }
+    if state.active_turn.lock().map_err(|_| "Не удалось получить активный turn.".to_owned())?.is_some() {
+        return Err("Сначала дождитесь завершения активного turn.".to_owned());
+    }
+    let runtime_state = Arc::clone(&state.runtime);
+    let turn_id = {
+        let mut guard = runtime_state.lock().map_err(|_| "Не удалось получить состояние runtime.".to_owned())?;
+        let runtime = guard.as_mut().ok_or("Сначала подключите Codex App Server.".to_owned())?;
+        if runtime.child.try_wait().map_err(|error| error.to_string())?.is_some() {
+            *guard = None;
+            return Err("Codex App Server завершился; подключите его заново.".to_owned());
+        }
+        send_json(&mut runtime.stdin, &json!({
+            "id":"orbita-follow-up-1", "method":"turn/start",
+            "params":{"threadId":thread_id, "input":[{"type":"text", "text":instruction, "text_elements":[]}]}
+        }))?;
+        let response = wait_response(runtime, "orbita-follow-up-1", INITIALIZE_TIMEOUT)?;
+        string_at(&response, &["result", "turn", "id"])
+            .ok_or("Codex не вернул identity follow-up turn.".to_owned())?
+    };
+    *state.active_turn.lock().map_err(|_| "Не удалось записать активный turn.".to_owned())? = Some(ActiveTurn { thread_id: thread_id.clone(), turn_id: turn_id.clone() });
+    let _active_turn_lease = ActiveTurnLease { active_turn: &state.active_turn };
+    let mut projection = RootTurnProjection::new(thread_id.clone(), turn_id.clone());
+    projection.emit(&updates, "turnAccepted", None, None)?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(120);
+    let mut assistant_text = None;
+    loop {
+        let remaining = deadline.checked_duration_since(std::time::Instant::now())
+            .ok_or("Follow-up turn did not finish within 120 seconds.".to_owned())?;
+        let message = {
+            let guard = runtime_state.lock().map_err(|_| "Не удалось получить состояние runtime.".to_owned())?;
+            let runtime = guard.as_ref().ok_or("Codex App Server не подключён.".to_owned())?;
+            poll_json(runtime, remaining.min(Duration::from_millis(250)))?
+        };
+        let Some(message) = message else { continue; };
+        let _ = projection.project(&message, &updates)?;
+        let params = message.get("params");
+        let matching = params.and_then(|value| value.get("threadId")).and_then(Value::as_str) == Some(thread_id.as_str())
+            && (params.and_then(|value| value.get("turnId")).and_then(Value::as_str) == Some(turn_id.as_str())
+                || params.and_then(|value| value.get("turn")).and_then(|turn| turn.get("id")).and_then(Value::as_str) == Some(turn_id.as_str()));
+        if !matching { continue; }
+        if message.get("method").and_then(Value::as_str) == Some("item/completed") {
+            if let Some(item) = params.and_then(|value| value.get("item")) {
+                if item.get("type").and_then(Value::as_str) == Some("agentMessage") {
+                    assistant_text = item.get("text").and_then(Value::as_str).map(ToOwned::to_owned);
+                }
+            }
+        }
+        if message.get("method").and_then(Value::as_str) == Some("turn/completed") {
+            let status = params.and_then(|value| value.get("turn")).and_then(|turn| turn.get("status")).and_then(Value::as_str)
+                .ok_or("Codex completed a follow-up without a status.".to_owned())?.to_owned();
+            *state.active_turn.lock().map_err(|_| "Не удалось очистить активный turn.".to_owned())? = None;
+            return Ok(RootTurnResult { thread_id, turn_id, status, assistant_text });
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
-        .invoke_handler(tauri::generate_handler![inspect_runtime, connect_runtime, stop_runtime, request_interrupt, start_root_task])
+        .invoke_handler(tauri::generate_handler![inspect_runtime, connect_runtime, stop_runtime, get_projection, request_interrupt, start_root_task, send_follow_up])
         .run(tauri::generate_context!())
         .expect("error while running Orbita");
 }

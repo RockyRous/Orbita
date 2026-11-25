@@ -36,6 +36,16 @@ result remains a summary for callers that need it; it is not the source of
 live rendering. The child stdout reader applies bounded backpressure instead
 of dropping protocol lines.
 
+`send_follow_up` uses the existing source-backed root-chat identity and creates
+a new turn in that same thread. It has the same ordered channel contract and
+is rejected while another turn is active. React keeps the ordered transcript
+of accepted turns; it never reconstructs a thread from message wording.
+
+`get_projection` returns the supervisor snapshot for this narrow live slice:
+connection state and, if present, the active thread/turn identities. If the
+owned App Server child has exited, the snapshot is `disconnected` and clears
+the active-turn claim. It does not claim runtime recovery or transcript replay.
+
 ### Interrupt request
 
 While a root turn is active, `request_interrupt` sends the qualified stable
