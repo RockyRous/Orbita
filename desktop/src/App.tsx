@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState } from "react";
 import type { ProjectionEnvelope, RuntimeState } from "./types";
 import "./App.css";
@@ -119,6 +120,11 @@ function App() {
     }
   }
 
+  async function chooseProject() {
+    const selected = await open({ directory: true, multiple: false, title: "Выберите папку проекта" });
+    if (typeof selected === "string") setProjectPath(selected);
+  }
+
   const canSend = runtime.phase === "connected" && !busy && projectPath.trim() && instruction.trim();
   const canFollowUp = runtime.phase === "connected" && !busy && history.length > 0 && instruction.trim();
 
@@ -150,7 +156,10 @@ function App() {
           {turnError ? <p className="honesty">{turnError}</p> : null}
         </div>}
         <form className="composer" onSubmit={(event) => { event.preventDefault(); history.length > 0 ? sendFollowUp() : startRootTask(); }}>
-          <input className="project-path" value={projectPath} onChange={(event) => setProjectPath(event.currentTarget.value)} disabled={runtime.phase !== "connected" || busy || history.length > 0} aria-label="Папка проекта" placeholder="Путь к папке проекта, например D:\\python\\project" />
+          <div className="project-selector">
+            <input className="project-path" value={projectPath} onChange={(event) => setProjectPath(event.currentTarget.value)} disabled={runtime.phase !== "connected" || busy || history.length > 0} aria-label="Папка проекта" placeholder="Выберите папку проекта" />
+            <button type="button" onClick={chooseProject} disabled={runtime.phase !== "connected" || busy || history.length > 0}>Выбрать папку</button>
+          </div>
           <textarea value={instruction} onChange={(event) => setInstruction(event.currentTarget.value)} disabled={runtime.phase !== "connected" || busy} aria-label="Инструкция для Codex" placeholder="Что поручить Codex?" rows={3} />
           <div className="composer-footer"><span>{history.length > 0 ? "Follow-up в том же root chat" : runtime.phase === "connected" ? "Read-only: первый настоящий запрос к Codex" : "Сначала подключите Codex"}</span><button type="submit" disabled={history.length > 0 ? !canFollowUp : !canSend}>{busy ? "Выполняется…" : "Отправить"}</button></div>
         </form>
