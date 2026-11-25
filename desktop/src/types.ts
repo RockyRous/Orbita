@@ -8,7 +8,7 @@ export type RuntimeState = {
 export type ProjectionEnvelope = {
   sequence: number;
   rootTaskId: string;
-  kind: "turnAccepted" | "turnStarted" | "assistantDelta" | "assistantMessage" | "turnCompleted";
+  kind: "turnAccepted" | "turnStarted" | "assistantDelta" | "assistantMessage" | "activity" | "turnCompleted";
   text?: string;
   status?: string;
 };

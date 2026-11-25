@@ -87,6 +87,7 @@ struct RootTurnResult {
     turn_id: String,
     status: String,
     assistant_text: Option<String>,
+    activity: Vec<String>,
 }
 
 /// The only live App Server shape exposed to the webview. Protocol JSON stays
@@ -107,11 +108,12 @@ struct RootTurnProjection {
     thread_id: String,
     turn_id: String,
     assistant_text: String,
+    activity: Vec<String>,
 }
 
 impl RootTurnProjection {
     fn new(thread_id: String, turn_id: String) -> Self {
-        Self { root_task_id: thread_id.clone(), thread_id, turn_id, sequence: 0, assistant_text: String::new() }
+        Self { root_task_id: thread_id.clone(), thread_id, turn_id, sequence: 0, assistant_text: String::new(), activity: Vec::new() }
     }
 
     fn emit(&mut self, updates: &Channel<ProjectionEnvelope>, kind: &str, text: Option<String>, status: Option<String>) -> Result<(), String> {
@@ -135,11 +137,24 @@ impl RootTurnProjection {
                 }
             }
             Some("item/completed") => {
-                if let Some(item) = params.and_then(|value| value.get("item"))
-                    && item.get("type").and_then(Value::as_str) == Some("agentMessage")
-                    && let Some(text) = item.get("text").and_then(Value::as_str) {
-                        self.assistant_text = text.to_owned();
-                        self.emit(updates, "assistantMessage", Some(text.to_owned()), None)?;
+                let item = params.and_then(|value| value.get("item"));
+                if let Some(text) = item.filter(|item| item.get("type").and_then(Value::as_str) == Some("agentMessage"))
+                    .and_then(|item| item.get("text")).and_then(Value::as_str) {
+                    self.assistant_text = text.to_owned();
+                    self.emit(updates, "assistantMessage", Some(text.to_owned()), None)?;
+                } else if let Some(item_type) = item.and_then(|item| item.get("type")).and_then(Value::as_str)
+                    && item_type != "userMessage" {
+                    let activity = format!("Codex завершил: {item_type}");
+                    self.activity.push(activity.clone());
+                    self.emit(updates, "activity", Some(activity), None)?;
+                }
+            }
+            Some("item/started") => {
+                if let Some(item_type) = params.and_then(|value| value.get("item")).and_then(|item| item.get("type")).and_then(Value::as_str)
+                    && item_type != "userMessage" && item_type != "agentMessage" {
+                        let activity = format!("Codex начал: {item_type}");
+                        self.activity.push(activity.clone());
+                        self.emit(updates, "activity", Some(activity), None)?;
                     }
             }
             Some("turn/completed") => {
@@ -454,7 +469,7 @@ fn start_root_task(input: StartRootTaskInput, updates: Channel<ProjectionEnvelop
             let status = params.and_then(|params| params.get("turn")).and_then(|turn| turn.get("status")).and_then(Value::as_str)
                 .ok_or("Codex завершил turn без статуса.".to_owned())?.to_owned();
             *state.active_turn.lock().map_err(|_| "Не удалось очистить активный turn.".to_owned())? = None;
-            return Ok(RootTurnResult { thread_id, turn_id, status, assistant_text });
+            return Ok(RootTurnResult { thread_id, turn_id, status, assistant_text, activity: projection.activity.clone() });
         }
     }
 }
@@ -516,7 +531,7 @@ fn send_follow_up(input: FollowUpInput, updates: Channel<ProjectionEnvelope>, st
             let status = params.and_then(|value| value.get("turn")).and_then(|turn| turn.get("status")).and_then(Value::as_str)
                 .ok_or("Codex completed a follow-up without a status.".to_owned())?.to_owned();
             *state.active_turn.lock().map_err(|_| "Не удалось очистить активный turn.".to_owned())? = None;
-            return Ok(RootTurnResult { thread_id, turn_id, status, assistant_text });
+            return Ok(RootTurnResult { thread_id, turn_id, status, assistant_text, activity: projection.activity.clone() });
         }
     }
 }

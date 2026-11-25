@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { ProjectionEnvelope, RuntimeState } from "./types";
 import "./App.css";
 
-type RootTurnResult = { threadId: string; turnId: string; status: string; assistantText?: string };
+type RootTurnResult = { threadId: string; turnId: string; status: string; assistantText?: string; activity: string[] };
 type ChatEntry = RootTurnResult & { userText: string };
 type SupervisorSnapshot = { connection: "connected" | "disconnected"; activeThreadId?: string; activeTurnId?: string };
 
@@ -66,15 +66,16 @@ function App() {
       if (update.sequence <= lastSequence) return;
       lastSequence = update.sequence;
       setTurn((current) => {
-        const next = current ?? { threadId: update.rootTaskId, turnId: "", status: "running", assistantText: "" };
+        const next = current ?? { threadId: update.rootTaskId, turnId: "", status: "running", assistantText: "", activity: [] };
         if (update.kind === "assistantDelta") return { ...next, assistantText: `${next.assistantText ?? ""}${update.text ?? ""}` };
         if (update.kind === "assistantMessage") return { ...next, assistantText: update.text ?? next.assistantText };
+        if (update.kind === "activity") return { ...next, activity: [...next.activity, update.text ?? "Наблюдаемая активность Codex"] };
         if (update.kind === "turnCompleted") return { ...next, status: update.status ?? "unknown" };
         return next;
       });
     });
     try {
-      const result = await invoke<RootTurnResult>("start_root_task", { projectPath, instruction, updates });
+      const result = await invoke<RootTurnResult>("start_root_task", { input: { projectPath, instruction }, updates });
       setTurn(result);
       setHistory([{ ...result, userText: instruction.trim() }]);
     }
@@ -95,15 +96,16 @@ function App() {
       if (update.sequence <= lastSequence) return;
       lastSequence = update.sequence;
       setTurn((current) => {
-        const next = current ?? { threadId: update.rootTaskId, turnId: "", status: "running", assistantText: "" };
+        const next = current ?? { threadId: update.rootTaskId, turnId: "", status: "running", assistantText: "", activity: [] };
         if (update.kind === "assistantDelta") return { ...next, assistantText: `${next.assistantText ?? ""}${update.text ?? ""}` };
         if (update.kind === "assistantMessage") return { ...next, assistantText: update.text ?? next.assistantText };
+        if (update.kind === "activity") return { ...next, activity: [...next.activity, update.text ?? "Наблюдаемая активность Codex"] };
         if (update.kind === "turnCompleted") return { ...next, status: update.status ?? "unknown" };
         return next;
       });
     });
     try {
-      const result = await invoke<RootTurnResult>("send_follow_up", { threadId, instruction, updates });
+      const result = await invoke<RootTurnResult>("send_follow_up", { input: { threadId, instruction }, updates });
       setTurn(result);
       setHistory((items) => [...items, { ...result, userText: instruction.trim() }]);
     } catch (error) { setTurnError(String(error)); }
@@ -145,10 +147,12 @@ function App() {
           {history.map((entry) => <div key={entry.turnId}>
             <article className="chat-message user-message"><span>Вы</span><p>{entry.userText}</p></article>
             <article className="chat-message assistant-message"><span>Codex • {entry.status}</span><p>{entry.assistantText || "Ответ агента не был доступен."}</p></article>
+            {entry.activity.map((activity, index) => <p className="activity-event" key={`${entry.turnId}-${index}`}>{activity}</p>)}
           </div>)}
           {busy && turn ? <div>
             <article className="chat-message user-message"><span>Вы</span><p>{sentInstruction}</p></article>
             <article className="chat-message assistant-message"><span>Codex {turn.status === "running" ? "печатает…" : `• ${turn.status}`}</span><p>{turn.assistantText || "Ответ готовится…"}</p></article>
+            {turn.activity.map((activity, index) => <p className="activity-event" key={`active-${index}`}>{activity}</p>)}
           </div> : null}
         </div> : <div className="chat-empty">
           <div className="empty-symbol">✦</div><h2>Начните работу с Codex</h2>

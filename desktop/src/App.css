@@ -34,6 +34,7 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 .user-message { margin-left: auto; background: #202a3d; border-color: #3b4b6d; }
 .user-message span { color: #bdc7ff; }
 .assistant-message { margin-right: auto; }
+.activity-event { margin: -10px 0 16px; color: #98a5bb; font-size: 11px; line-height: 1.4; }
 .empty-symbol { display: grid; place-items: center; width: 42px; height: 42px; margin: 0 auto 15px; border: 1px solid #3a4660; border-radius: 12px; color: #aeb9ff; background: #192032; font-size: 20px; }
 .empty-symbol.small { width: 32px; height: 32px; border-radius: 9px; font-size: 14px; }
 .chat-empty h2 { margin: 0 0 9px; font-size: 21px; font-weight: 630; }
