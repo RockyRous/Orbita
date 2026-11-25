@@ -15,6 +15,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [projectPath, setProjectPath] = useState("");
   const [instruction, setInstruction] = useState("");
+  const [sentInstruction, setSentInstruction] = useState("");
   const [turn, setTurn] = useState<RootTurnResult | null>(null);
   const [turnError, setTurnError] = useState<string | null>(null);
 
@@ -39,6 +40,7 @@ function App() {
     setBusy(true);
     setTurnError(null);
     setTurn(null);
+    setSentInstruction(instruction.trim());
     let lastSequence = 0;
     const updates = new Channel<ProjectionEnvelope>((update) => {
       if (update.sequence <= lastSequence) return;
@@ -71,12 +73,14 @@ function App() {
       </aside>
       <section className="chat-pane" aria-label="Чат Codex">
         <header className="topbar"><div><p className="eyebrow">ПРОЕКТ НЕ ВЫБРАН</p><h1>Новая задача</h1></div><div className="topbar-actions"><span className="badge">Нет активного turn</span><button disabled>Прервать</button></div></header>
-        <div className="chat-empty">
+        {turn ? <div className="chat-transcript" aria-live="polite">
+          <article className="chat-message user-message"><span>Вы</span><p>{sentInstruction}</p></article>
+          <article className="chat-message assistant-message"><span>Codex {turn.status === "running" ? "печатает…" : `• ${turn.status}`}</span><p>{turn.assistantText || "Ответ готовится…"}</p></article>
+        </div> : <div className="chat-empty">
           <div className="empty-symbol">✦</div><h2>Начните работу с Codex</h2>
           <p>{runtime.phase === "connected" ? "Codex подключён. Первый turn выполнится безопасно: read-only, без approvals." : "Сначала проверьте и подключите Codex runtime."}</p>
-          {turn ? <div className="result-card"><strong>Turn: {turn.status}</strong><p>{turn.assistantText ?? "Ответ агента не был доступен в terminal item."}</p></div> : null}
           {turnError ? <p className="honesty">{turnError}</p> : null}
-        </div>
+        </div>}
         <form className="composer" onSubmit={(event) => { event.preventDefault(); startRootTask(); }}>
           <input className="project-path" value={projectPath} onChange={(event) => setProjectPath(event.currentTarget.value)} disabled={runtime.phase !== "connected" || busy} aria-label="Папка проекта" placeholder="Путь к папке проекта, например D:\\python\\project" />
           <textarea value={instruction} onChange={(event) => setInstruction(event.currentTarget.value)} disabled={runtime.phase !== "connected" || busy} aria-label="Инструкция для Codex" placeholder="Что поручить Codex?" rows={3} />
